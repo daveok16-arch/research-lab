@@ -1,0 +1,317 @@
+# Trade profiles and classification rules.
+#
+# The MVP ships one trade: commercial HVAC / mechanical contracting, in one market: DFW.
+# Adding a trade means adding an entry under `trades` — the core pipeline, schema, and
+# dashboard do not change.
+#
+# IMPORTANT: weights here are evidence weights, not guesses. Every point awarded during
+# classification is traceable to a recorded fact and is written into
+# `project.classification_reasons`.
+
+trades:
+  commercial_hvac:
+    label: "Commercial HVAC / Mechanical"
+    active: true
+    market:
+      name: "Dallas-Fort Worth, TX"
+      cities:
+        - Fort Worth
+        - Dallas
+        - Plano
+        - Frisco
+        - McKinney
+        - Celina
+        - Wylie
+        - Allen
+        - Prosper
+        - Princeton
+        - Melissa
+        - Anna
+        - Lavon
+      state: TX
+
+    # --- Tier 1: a mechanical permit filed at the same address -------------------
+    # The building department itself recorded mechanical scope. Strongest signal.
+    mechanical_permit_type_keywords:
+      - mechanical
+      - hvac
+      - refrigeration
+      - air conditioning
+
+    # --- Tier 2: mechanical scope named in permit text ---------------------------
+    mechanical_scope_keywords:
+      - hvac
+      - mechanical
+      - refrigeration
+      - chiller
+      - boiler
+      - "air handler"
+      - "air handling"
+      - "make-up air"
+      - "make up air"
+      - "rooftop unit"
+      - "split system"
+      - "vav"
+      - "exhaust"
+      - "ventilation"
+      - "ductwork"
+      - "duct work"
+      - "fume hood"
+      - "process cooling"
+      - "cooling tower"
+      - "heat pump"
+
+    # --- Work that structurally implies mechanical scope -------------------------
+    # Used for property classification, never as Tier-1/Tier-2 evidence.
+    construction_activity_keywords:
+      - "new construction"
+      - "new building"
+      - "shell"
+      - "core and shell"
+      - "finish out"
+      - "build-out"
+      - "buildout"
+      - "remodel"
+      - "renovation"
+      - "addition"
+      - "interior remodel"
+      - "tenant improvement"
+
+    # --- Property classes the customer asked us to prioritise --------------------
+    # `keywords` are matched case-insensitively against land use, specific use, and
+    # work description text coming from the source.
+    property_classes:
+      - id: healthcare
+        label: "Healthcare"
+        points: 35
+        keywords:
+          - hospital
+          - medical
+          - clinic
+          - ambulatory
+          - surgical
+          - surgery
+          - healthcare
+          - health care
+          - dialysis
+          - "nursing"
+          - "assisted living"
+          - "senior living"
+          - "laboratory"
+          - "urgent care"
+          - "diagnostic"
+          - "pharmacy"
+
+      - id: data_center
+        label: "Data Center"
+        points: 40
+        keywords:
+          - "data center"
+          - "data centre"
+          - datacenter
+          - "server farm"
+          - "colocation"
+          - "co-location"
+          - "telecom hotel"
+
+      - id: manufacturing
+        label: "Manufacturing"
+        points: 35
+        keywords:
+          - manufacturing
+          - factory
+          - "fabrication"
+          - "assembly plant"
+          - "production facility"
+          - "food processing"
+
+      - id: industrial
+        label: "Industrial"
+        points: 35
+        keywords:
+          - industrial
+          - warehouse
+          - distribution
+          - logistics
+          - "cold storage"
+          - "hazardous industrial"
+          - "flex space"
+          - "bulk storage"
+
+      - id: office
+        label: "Office"
+        points: 25
+        keywords:
+          - office
+          - "office building"
+          - "corporate"
+          - "headquarters"
+          - "professional building"
+
+      - id: retail
+        label: "Retail"
+        points: 25
+        keywords:
+          - retail
+          - "shopping center"
+          - "shopping centre"
+          - "strip center"
+          - store
+          - restaurant
+          - "food service"
+          - "sales and service"
+          - grocery
+          - supermarket
+          - "personal grooming"
+
+      - id: hospitality
+        label: "Hospitality"
+        points: 25
+        keywords:
+          - hotel
+          - motel
+          - hospitality
+          - resort
+          - conference
+          - "banquet"
+          - "country club"
+          - "amenity"
+
+      - id: education
+        label: "Education"
+        points: 25
+        keywords:
+          - school
+          - "isd"
+          - "independent school district"
+          - college
+          - university
+          - campus
+          - daycare
+          - "day care"
+          - "education"
+
+      - id: public
+        label: "Public / Institutional"
+        points: 25
+        keywords:
+          - municipal
+          - "city of"
+          - county
+          - federal
+          - state
+          - institutional
+          - library
+          - courthouse
+          - "fire station"
+          - "police"
+          - "transit"
+          - "public works"
+          - "government"
+          - "assembly"
+
+      - id: multifamily
+        label: "Multifamily"
+        points: 15
+        keywords:
+          - multifamily
+          - "multi-family"
+          - "multi family"
+          - apartment
+          - "mixed use"
+          - condominium
+          - "senior housing"
+
+      - id: commercial_other
+        label: "Commercial (unspecified)"
+        points: 5
+        keywords:
+          - commercial
+          - "shell"
+          - "vacant floor space"
+          - "mixed use"
+
+    # --- Classification points ---------------------------------------------------
+    scoring:
+      mechanical_permit_points: 45
+      mechanical_scope_points: 30
+
+      value_tiers:
+        - { min: 5000000, points: 20 }
+        - { min: 1000000, points: 15 }
+        - { min: 250000,  points: 8 }
+
+      size_tiers:
+        - { min: 50000, points: 12 }
+        - { min: 10000, points: 6 }
+
+      active_status_points: 15
+      recent_permit_days: 180
+      recent_permit_points: 10
+
+    # --- Label thresholds ---------------------------------------------------------
+    # `requires_mechanical_evidence_for_high` is enforced in code, not by arithmetic.
+    # A project with a large value and a strong property class but no mechanical
+    # evidence can never be labelled HIGH.
+    thresholds:
+      high_min_score: 70
+      medium_min_score: 40
+      requires_mechanical_evidence_for_high: true
+      medium_requires_commercial_class: true
+      # Scale floor for Tier-2 (scope text) mechanical evidence. Without it, a small roof
+      # replacement that mentions "HVAC curbs" in passing would be reported as a major
+      # opportunity. Tier-1 mechanical permits are exempt from this floor.
+      high_min_value: 250000
+      high_min_sqft: 10000
+
+    # Statuses that indicate the project is moving toward construction or procurement.
+    active_status_keywords:
+      - issued
+      - approved
+      - "under construction"
+      - "in review"
+      - "plan review"
+      - pending
+      - "partial approval"
+      - "approved with conditions"
+      - "awaiting client reply"
+      - "incomplete submittal"
+      - started
+      - active
+
+    # Statuses that indicate the project is finished, dead, or not worth pursuing.
+    inactive_status_keywords:
+      - finaled
+      - complete
+      - closed
+      - void
+      - denied
+      - withdrawn
+      - expired
+      - "closed by rule"
+      - "opt-out"
+      - hold
+
+    # Residential indicators used to exclude non-commercial rows before assembly.
+    residential_exclusion_keywords:
+      - "single family"
+      - "single-family"
+      - "duplex"
+      - "townhouse"
+      - "residential"
+      - "model home"
+      - "accessory dwelling"
+      - "storage shed"
+      - "carport"
+      - "boat dock"
+      - "pool house"
+      - "deck - ramp - stair"
+      - "fence"
+      - "lawn sprinkler"
+      - "swimming pool"
+      - "fire pit"
+      - "flag pole"
+      - "retaining wall"
+      - "drive approach"
+      - "solar"
+      - "roof - residential"
