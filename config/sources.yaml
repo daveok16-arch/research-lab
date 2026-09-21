@@ -1,0 +1,118 @@
+# Public, no-authentication data sources for the DFW construction opportunity pipeline.
+#
+# Every source listed here was verified reachable, free, and login-free during Phase 1
+# reconnaissance. Sources that require an account (TDLR TABS) are deliberately excluded.
+#
+# `market_coverage` records what period the source actually covers. The pipeline surfaces
+# this so the dashboard never presents stale data as current.
+
+defaults:
+  user_agent: "DFW-OppIntelligence-MVP/0.1 (public-records research)"
+  min_seconds_between_requests: 1.0
+  max_retries: 3
+  timeout_seconds: 60
+  page_size: 1000
+  max_pages: 200
+
+sources:
+  - id: fort_worth_permits
+    name: "City of Fort Worth Development Permits"
+    publisher: "City of Fort Worth, TX"
+    kind: arcgis
+    enabled: true
+    # Verified live 2026-09-20: newest File_Date is current within days.
+    market_coverage: current
+    base_url: "https://mapit.fortworthtexas.gov/ags/rest/services/CIVIC/Permits/MapServer/0"
+    portal_url: "https://mapit.fortworthtexas.gov/ags/rest/services/CIVIC/Permits/MapServer/0"
+    source_url_template: "https://mapit.fortworthtexas.gov/ags/rest/services/CIVIC/Permits/MapServer/0/query?where=Permit_No%3D%27{permit_number}%27&outFields=*&returnGeometry=false&f=json"
+    jurisdiction_city: "Fort Worth"
+    jurisdiction_state: "TX"
+    reliability: 0.95
+    notes: >
+      Includes a first-class "Mechanical" permit type and "Commercial Building Permit"
+      records with work description, declared job value, and owner. This is the strongest
+      single source for Tier-1 HVAC evidence in the DFW market.
+
+  - id: collin_cad_permits
+    name: "Collin CAD Building Permits"
+    publisher: "Collin Central Appraisal District (via data.texas.gov)"
+    kind: socrata
+    enabled: true
+    market_coverage: current
+    domain: "data.texas.gov"
+    dataset_id: "82ee-gbj5"
+    portal_url: "https://data.texas.gov/d/82ee-gbj5"
+    source_url_template: "https://data.texas.gov/resource/82ee-gbj5.json?permitid={permit_id}"
+    jurisdiction_city: null
+    jurisdiction_state: "TX"
+    reliability: 0.9
+    notes: >
+      Commercial permits across Collin County jurisdictions (Plano, Frisco, McKinney,
+      Celina, Wylie and others). Carries owner name, declared value, and building area.
+      Includes an explicit Commercial/Residential flag used to filter before assembly.
+
+  - id: dallas_accela_permits
+    name: "City of Dallas Building Records (DallasNow / Accela)"
+    publisher: "City of Dallas, TX — Planning & Development"
+    kind: accela
+    enabled: true
+    # Verified live 2026-09-21: records returned dated the same day.
+    market_coverage: current
+    base_url: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    portal_url: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    search_url_template: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    # The portal addresses records by a three-part capID, not by record number, and exposes
+    # no per-record permalink. Records are traceable by searching the record number.
+    source_url_template: null
+    jurisdiction_city: "Dallas"
+    jurisdiction_state: "TX"
+    reliability: 0.9
+    coverage_note: >
+      Current. Replaces the stale Socrata extract (ends 2019-12-31) and GIS layer (ends
+      2023-12-29) for Dallas. Publishes Commercial Mechanical Permit as a first-class
+      record type, which supplies Tier-1 mechanical evidence directly from the City. The
+      portal exposes no declared job value or floor area, so those fields remain
+      unverified for Dallas records.
+    notes: >
+      ASP.NET WebForms public search. Requires a session-scoped __VIEWSTATE plus Origin and
+      Referer headers; see docs/dallas_source.md for the verified request mechanism.
+      Paginates ten records per page and saturates its result counter at "100+".
+
+  - id: dallas_gis_permits
+    name: "City of Dallas Building Permits FY2023-24"
+    publisher: "City of Dallas, TX (DallasGIS)"
+    kind: arcgis
+    enabled: false
+    # Verified 2026-09-20: maximum ISSUE_DATE is 2023-12-29. This source is historical.
+    market_coverage: historical
+    coverage_note: >
+      Ends 2023-12-29. The City of Dallas has not published a current permit feed on this
+      layer. Dallas records here are useful for pattern research but must not be presented
+      as newly issued opportunities.
+    base_url: "https://services2.arcgis.com/rwnOSbfKSwyTBcwN/arcgis/rest/services/T_BU_Permits_FY2023_24/FeatureServer/0"
+    portal_url: "https://www.arcgis.com/home/item.html?id=12ca73741a5545bf87ead3f9a1c8c0e7"
+    source_url_template: null
+    jurisdiction_city: "Dallas"
+    jurisdiction_state: "TX"
+    reliability: 0.85
+    notes: >
+      Carries an explicit COMMERCIAL Y/N flag and the permit contractor of record.
+
+  - id: dallas_permits_socrata
+    name: "City of Dallas Building Permits (Socrata)"
+    publisher: "City of Dallas, TX"
+    kind: socrata
+    enabled: false
+    # Verified 2026-09-20: dataset last updated 2026-06-05 but max issued_date is 2019-12-31.
+    market_coverage: stale
+    coverage_note: >
+      Maximum issued_date is 2019-12-31. Disabled by default: the rows are too old to
+      represent sales opportunities. Retained for historical trend analysis only.
+    domain: "www.dallasopendata.com"
+    dataset_id: "e7gq-4sah"
+    portal_url: "https://www.dallasopendata.com/d/e7gq-4sah"
+    source_url_template: "https://www.dallasopendata.com/resource/e7gq-4sah.json?permit_number={permit_number}"
+    jurisdiction_city: "Dallas"
+    jurisdiction_state: "TX"
+    reliability: 0.8
+    notes: "Historical only. Enable with --source dallas_permits_socrata for trend work."

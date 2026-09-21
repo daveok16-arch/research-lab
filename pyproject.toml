@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oppintel"
+version = "0.1.0"
+description = "DFW construction opportunity intelligence MVP for commercial HVAC contractors"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+web = ["Flask>=3.0"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+oppintel = "oppintel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
