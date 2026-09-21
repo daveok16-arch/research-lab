@@ -27,6 +27,9 @@ from .models import Permit, RawPermit, normalize_address, utcnow
 
 log = logging.getLogger(__name__)
 
+#: Commit the permit batch every N rows so a long crawl is not an all-or-nothing transaction.
+COMMIT_EVERY = 250
+
 
 @dataclass
 class IngestResult:
@@ -36,6 +39,9 @@ class IngestResult:
     rows_landed: int = 0
     permits_created: int = 0
     error: str | None = None
+    #: Pages fetched per permit type where the connector reports them. Makes a crawl that
+    #: was cut short by a page cap visible rather than presenting as complete.
+    pages_by_type: dict[str, int] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +51,8 @@ class IngestResult:
             "rows_landed": self.rows_landed,
             "permits_created": self.permits_created,
             "error": self.error,
+            "pages_by_type": self.pages_by_type,
+            "total_pages": sum(self.pages_by_type.values()),
         }
 
 
@@ -53,12 +61,14 @@ class PipelineReport:
     results: list[IngestResult] = field(default_factory=list)
     projects_written: int = 0
     classification_counts: dict[str, int] = field(default_factory=dict)
+    coverage: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "sources": [r.as_dict() for r in self.results],
             "projects_written": self.projects_written,
             "classification_counts": self.classification_counts,
+            "coverage": self.coverage,
         }
 
 
@@ -68,6 +78,8 @@ class Pipeline:
         self.trade = active_trade() if trade_id is None else load_trades()[trade_id]
         self.source_names = {sid: cfg.name for sid, cfg in load_sources().items()}
         self.source_defaults = load_sources()
+        #: Pages fetched per source during this pipeline's lifetime, for coverage metadata.
+        self._pages_seen: dict[str, int] = {}
         self._raw_defaults: dict[str, Any] = yaml.safe_load(
             (CONFIG_DIR / "sources.yaml").read_text()
         ).get("defaults", {})
@@ -120,9 +132,19 @@ class Pipeline:
                     continue
                 self.db.upsert_permit(permit, normalize_address(permit.address))
                 result.permits_created += 1
+                # Commit periodically. A long crawl over a slow public portal can be
+                # interrupted by a timeout or an operator, and without an intermediate
+                # commit every permit fetched so far would be rolled back and re-fetched.
+                if result.permits_created % COMMIT_EVERY == 0:
+                    self.db.commit()
+                    log.info(
+                        "%s: committed %d permits", source_id, result.permits_created
+                    )
                 if progress and result.permits_created % 500 == 0:
                     progress(result.permits_created)
 
+            result.pages_by_type = dict(getattr(connector, "pages_by_type", {}) or {})
+            self._pages_seen[source_id] = sum(result.pages_by_type.values())
             self.db.commit()
             self.db.finish_run(
                 run_id, "ok", result.rows_fetched, result.rows_landed, result.permits_created
@@ -203,7 +225,44 @@ class Pipeline:
         assembled = self.assemble_and_classify()
         report.projects_written = assembled.projects_written
         report.classification_counts = assembled.classification_counts
+        report.coverage = self.record_coverage()
         return report
+
+    def record_coverage(self, pagination_pages: int | None = None) -> dict[str, Any]:
+        """Persist per-source coverage metadata for every configured source.
+
+        Called after ingestion so that the coverage figures describe what is actually held.
+        Pagination counts come from the connector where it exposes them, so a crawl that was
+        truncated by a page cap is recorded rather than silently presenting as complete.
+        """
+        retrieval = utcnow()
+        coverage: dict[str, Any] = {}
+        for source_id, cfg in self.source_defaults.items():
+            pages = (
+                pagination_pages
+                if pagination_pages is not None
+                else self._pages_seen.get(source_id)
+            )
+            notes = cfg.coverage_note
+
+            if source_id == "dallas_accela_permits":
+                notes = (
+                    "Current. Searched by commercial record type from 2026-01-01. "
+                    "Paginated to exhaustion; the portal's result counter grows as it is "
+                    "paged (100+ then 200+) and is a lower bound, not a total."
+                )
+
+            self.db.record_source_coverage(
+                source_id,
+                retrieval_date=retrieval,
+                pagination_pages=pages,
+                pagination_notes=notes,
+            )
+            row = self.db.conn.execute(
+                "SELECT * FROM source_coverage WHERE source_id = ?", (source_id,)
+            ).fetchone()
+            coverage[source_id] = dict(row) if row else {}
+        return coverage
 
 
 def _replay(landing_path) -> Iterator[RawPermit]:

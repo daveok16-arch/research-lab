@@ -46,17 +46,20 @@ PYTHONPATH=src python -m pytest tests/ -q
 
 ## What it currently finds
 
-Measured against live sources (Fort Worth, Collin CAD, and Dallas via Accela):
+Measured against live sources (Dallas via Accela, Fort Worth, Collin CAD):
 
 | Metric | Result |
 |---|---|
-| Rows ingested | 5,033 permits |
-| Commercial projects assembled | 692 |
-| HIGH | 2 |
-| MEDIUM | 86 |
-| NEEDS_VERIFICATION | 604 |
-| Projects with mechanical evidence | 29 |
-| Dallas coverage | 2026-08-03 → 2026-09-21 |
+| Permits ingested | 21,937 |
+| Commercial projects assembled | 3,940 |
+| HIGH | 13 |
+| MEDIUM | 691 |
+| NEEDS_VERIFICATION | 3,236 |
+| Projects with mechanical evidence | 367 |
+| Dallas records | 18,035 |
+| Dallas projects | 2,734 |
+| Dallas records with mechanical evidence | 2,446 |
+| Dallas coverage | 2026-01-01 → 2026-09-21 |
 
 A small HIGH count is the intended outcome, not a shortcoming. Four gates see to that: a
 project is only called HIGH when a public record documents mechanical scope, the project is

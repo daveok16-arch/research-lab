@@ -55,6 +55,22 @@ CREATE TABLE IF NOT EXISTS raw_record (
 
 CREATE INDEX IF NOT EXISTS idx_raw_record_source ON raw_record(source_id, natural_key);
 
+-- Per-source coverage metadata, refreshed on every ingest run. Records what the source
+-- actually returned rather than what it is documented to return, so a truncated crawl or a
+-- moving coverage window is visible instead of being inferred from the record count.
+CREATE TABLE IF NOT EXISTS source_coverage (
+    source_id          TEXT PRIMARY KEY REFERENCES source(id) ON DELETE CASCADE,
+    earliest_date      TEXT,
+    latest_date        TEXT,
+    retrieval_date     TEXT NOT NULL,
+    record_count       INTEGER NOT NULL DEFAULT 0,
+    commercial_count   INTEGER NOT NULL DEFAULT 0,
+    mechanical_count   INTEGER NOT NULL DEFAULT 0,
+    pagination_pages   INTEGER,
+    pagination_notes   TEXT,
+    updated_at         TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS permit (
     id                 INTEGER PRIMARY KEY,
     source_id          TEXT NOT NULL REFERENCES source(id),
@@ -529,6 +545,91 @@ class Database:
             ),
         )
         self.conn.commit()
+
+    def record_source_coverage(
+        self,
+        source_id: str,
+        *,
+        retrieval_date: datetime,
+        pagination_pages: int | None = None,
+        pagination_notes: str | None = None,
+    ) -> None:
+        """Recompute and store coverage metadata for a source from the stored permits.
+
+        Derived from the database rather than from the crawl's own counters, so the figures
+        describe what is actually held and cannot drift from the permit table.
+        """
+        row = self.conn.execute(
+            """
+            SELECT MIN(permit_date) AS earliest,
+                   MAX(permit_date) AS latest,
+                   COUNT(*) AS records,
+                   SUM(CASE WHEN is_commercial = 1 THEN 1 ELSE 0 END) AS commercial,
+                   SUM(CASE WHEN LOWER(COALESCE(permit_type,'')) LIKE '%mechanical%'
+                            THEN 1 ELSE 0 END) AS mechanical
+              FROM permit WHERE source_id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+
+        now = datetime.now(timezone.utc).isoformat()
+        # Preserve a previously recorded pagination count when this call does not supply one.
+        # The ingest run knows the page count, but the later assemble run does not, so without
+        # this the figure would be erased the moment projects were rebuilt.
+        if pagination_pages is None:
+            prior = self.conn.execute(
+                "SELECT pagination_pages FROM source_coverage WHERE source_id = ?",
+                (source_id,),
+            ).fetchone()
+            if prior is not None:
+                pagination_pages = prior["pagination_pages"]
+        if pagination_notes is None:
+            prior_notes = self.conn.execute(
+                "SELECT pagination_notes FROM source_coverage WHERE source_id = ?",
+                (source_id,),
+            ).fetchone()
+            if prior_notes is not None:
+                pagination_notes = prior_notes["pagination_notes"]
+
+        self.conn.execute(
+            """
+            INSERT INTO source_coverage (source_id, earliest_date, latest_date, retrieval_date,
+                record_count, commercial_count, mechanical_count, pagination_pages,
+                pagination_notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_id) DO UPDATE SET
+                earliest_date = excluded.earliest_date,
+                latest_date = excluded.latest_date,
+                retrieval_date = excluded.retrieval_date,
+                record_count = excluded.record_count,
+                commercial_count = excluded.commercial_count,
+                mechanical_count = excluded.mechanical_count,
+                pagination_pages = excluded.pagination_pages,
+                pagination_notes = excluded.pagination_notes,
+                updated_at = excluded.updated_at
+            """,
+            (
+                source_id,
+                row["earliest"], row["latest"], retrieval_date.date().isoformat(),
+                row["records"] or 0, row["commercial"] or 0, row["mechanical"] or 0,
+                pagination_pages, pagination_notes, now,
+            ),
+        )
+        self.conn.commit()
+
+    def source_coverage(self) -> list[dict[str, Any]]:
+        """Coverage metadata for every source, joined to its human-readable name."""
+        return [
+            dict(r)
+            for r in self.conn.execute(
+                """
+                SELECT s.name, s.jurisdiction_city, s.market_coverage, c.*
+                  FROM source s
+                  LEFT JOIN source_coverage c ON c.source_id = s.id
+                 ORDER BY c.record_count DESC NULLS LAST, s.name
+                """
+            )
+        ]
 
     # --- reporting ------------------------------------------------------------
 

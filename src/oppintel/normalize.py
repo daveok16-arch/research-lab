@@ -137,8 +137,21 @@ def is_trade_service_work(permit: Permit) -> bool:
 
 
 def _scope_text(permit: Permit) -> str:
-    """The permit's own scope text, boilerplate removed, lowercased."""
-    parts = [permit.work_description, permit.land_use, permit.specific_use]
+    """The permit's own scope text, boilerplate removed, lowercased.
+
+    The permit type and subtype are included deliberately. For Dallas and Fort Worth the
+    type carries the scope: a "Commercial New Construction Permit" with an empty description
+    is unmistakably a new building, and the type is the only place that is stated. Boilerplate
+    only ever appears in the free-text description, so including the type here cannot
+    reintroduce the disclaimer problem that BOILERPLATE_PATTERNS exists to solve.
+    """
+    parts = [
+        permit.permit_type,
+        (permit.permit_subtype or "").replace("_", " "),
+        permit.work_description,
+        permit.land_use,
+        permit.specific_use,
+    ]
     cleaned = " ".join(strip_boilerplate(p) or "" for p in parts if p)
     return re.sub(r"\s+", " ", cleaned).strip().lower()
 

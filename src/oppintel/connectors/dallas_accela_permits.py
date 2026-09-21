@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import date, datetime
 from html.parser import HTMLParser
 from typing import Any, Iterator
@@ -64,7 +65,15 @@ COMMERCIAL_PERMIT_TYPES: dict[str, str] = {
 MECHANICAL_TYPE_LABEL = "Commercial Mechanical Permit"
 
 #: The result counter saturates at this literal value rather than reporting a true total.
+#: The bound grows as the search is paged (page 1 reports "100+", page 11 reports "200+"),
+#: so it is a lower bound on the result set, never an exact total.
 SATURATED_COUNT_MARKER = "100+"
+
+#: Matches the pager's "Next >" anchor and captures its postback target.
+#: The label is the reliable signal, because pager control indices shift as the window
+#: moves. The anchor markup was captured verbatim from the live portal on 2026-09-21:
+#:   <a class="..." href="javascript:__doPostBack('...$ctl13$ctl14','')">Next &gt;</a>
+NEXT_ANCHOR_RE = re.compile(r"__doPostBack\(&#39;([^&]+)&#39;,&#39;&#39;\)\">Next &gt;</a>")
 
 PAGE_SIZE = 10
 
@@ -231,6 +240,9 @@ class DallasAccelaConnector(BaseConnector):
         super().__init__(config, defaults)
         # The Origin/Referer headers are mandatory; without them this endpoint rejects
         # otherwise-valid POSTs with an error page.
+        #: Pages fetched per permit type on the last run. Surfaced as source metadata so a
+        #: truncated crawl is visible rather than silently producing fewer records.
+        self.pages_by_type: dict[str, int] = {}
         self.session.headers.update(
             {
                 "Accept": (
@@ -265,20 +277,48 @@ class DallasAccelaConnector(BaseConnector):
             )
         return form
 
-    def _post(self, form: dict[str, str], event_target: str) -> str:
-        form = dict(form)
-        form["__EVENTTARGET"] = event_target
-        form["__EVENTARGUMENT"] = ""
-        self.limiter.wait()
-        response = self.session.post(
-            self._home_url(), data=form, timeout=self.timeout, allow_redirects=True
+    def _post(self, form: dict[str, str], event_target: str, *, attempts: int | None = None) -> str:
+        """POST the form with a postback target, retrying transient failures.
+
+        Retrying matters more here than it does for a single GET: a crawl issues one POST
+        per page, so a single transient 502 from the portal aborts the whole pagination
+        sequence and silently truncates the result set. Each attempt re-parses nothing and
+        reuses the same session, so the viewstate stays valid.
+        """
+        attempts = attempts or self.max_retries
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            payload = dict(form)
+            payload["__EVENTTARGET"] = event_target
+            payload["__EVENTARGUMENT"] = ""
+            self.limiter.wait()
+            try:
+                response = self.session.post(
+                    self._home_url(), data=payload, timeout=self.timeout,
+                    allow_redirects=True,
+                )
+                if response.status_code in (429, 500, 502, 503, 504):
+                    raise ConnectorError(
+                        f"Dallas Accela returned transient HTTP {response.status_code}"
+                    )
+                response.raise_for_status()
+                if "Error.aspx" in response.url:
+                    raise ConnectorError(
+                        f"Dallas Accela rejected the request ({event_target}) with an error page."
+                    )
+                return response.text
+            except Exception as exc:  # noqa: BLE001 - retried, then re-raised
+                last_error = exc
+                backoff = 2 ** attempt
+                log.warning(
+                    "Dallas Accela: attempt %d/%d for %s failed (%s); retrying in %ds",
+                    attempt + 1, attempts, event_target, exc, backoff,
+                )
+                time.sleep(backoff)
+        raise ConnectorError(
+            f"Dallas Accela request {event_target} failed after {attempts} attempts: "
+            f"{last_error}"
         )
-        response.raise_for_status()
-        if "Error.aspx" in response.url:
-            raise ConnectorError(
-                f"Dallas Accela rejected the request ({event_target}) with an error page."
-            )
-        return response.text
 
     # --- fetch -----------------------------------------------------------------
 
@@ -312,48 +352,78 @@ class DallasAccelaConnector(BaseConnector):
     def _fetch_type(
         self, permit_type: str, key: str, start: str, end: str, page_cap: int
     ) -> Iterator[RawPermit]:
+        """Yield every record of one permit type, following the pager to exhaustion.
+
+        Termination conditions, in order:
+          * the response has no ``Next >`` anchor, which is the natural end of the result set;
+          * a page yields no records that have not already been seen, which guards against a
+            pager that repeats rather than advances;
+          * ``page_cap`` pages have been fetched, an explicit operator safety bound.
+        """
         form = self._fresh_form()
         form["ctl00$PlaceHolderMain$generalSearchForm$txtGSStartDate"] = start
         form["ctl00$PlaceHolderMain$generalSearchForm$txtGSEndDate"] = end
         form["ctl00$PlaceHolderMain$generalSearchForm$ddlGSPermitType"] = permit_type
 
-        html = self._post(form, "ctl00$PlaceHolderMain$btnNewSearch")
-        rows = parse_results(html)
+        html: str | None = self._post(form, "ctl00$PlaceHolderMain$btnNewSearch")
         seen: set[str] = set()
+        pages_fetched = 0
+        self.pages_by_type[key] = 0
 
-        page = 1
-        while rows:
-            new_rows = [r for r in rows if r["record_number"] and r["record_number"] not in seen]
+        while html is not None and pages_fetched < page_cap:
+            rows = parse_results(html)
+            pages_fetched += 1
+            self.pages_by_type[key] = pages_fetched
+
+            new_rows = [
+                r for r in rows if r["record_number"] and r["record_number"] not in seen
+            ]
             for row in new_rows:
                 seen.add(row["record_number"])
-                row = dict(row)
-                row["_permit_type_key"] = key
-                row["_permit_type_value"] = permit_type
+                payload = dict(row)
+                payload["_permit_type_key"] = key
+                payload["_permit_type_value"] = permit_type
                 yield RawPermit(
                     source_id=self.source_id,
                     natural_key=self.natural_key(row),
-                    payload=row,
+                    payload=payload,
                     source_url=self._record_url(row),
                 )
 
-            if not new_rows or page >= page_cap:
+            if not new_rows:
+                log.info(
+                    "Dallas: %s stopped at page %d with no new records", key, pages_fetched
+                )
                 break
 
-            html = self._paged(html, page + 1)
-            rows = parse_results(html)
-            page += 1
+            html = self._paged(html)
 
-    def _paged(self, html: str, page_number: int) -> str:
-        """Request a later page.
+        if pages_fetched >= page_cap:
+            log.warning("Dallas: %s hit the page cap (%d pages)", key, page_cap)
 
-        The pager anchors are numbered from 2, so page N uses ``$ctl13$ctl(N+1)``.
+    def _paged(self, html: str) -> str | None:
+        """Advance to the next page, or return None when there is no next page.
+
+        The pager is a *windowed* control, verified against the live portal on 2026-09-21:
+
+            ctl13$ctl03 .. ctl13$ctl11  -> pages 2 .. 10
+            ctl13$ctl12                 -> the '...' ellipsis, which jumps ten pages on
+            ctl13$ctl14                 -> 'Next >'
+
+        Two consequences shaped this implementation:
+
+        1. Pager indices are *not* a stable arithmetic function of the page number. Past
+           page 10 the window shifts, so computing ``ctl{page+1}`` silently stops landing on
+           the intended page. The connector therefore follows the ``Next >`` control, whose
+           presence is also the natural termination signal.
+        2. The document contains more than one pagination region (a hidden dialog reuses the
+           same CSS classes), so the *last* matching anchor is taken, which is the live
+           result pager.
         """
-        form = build_form(html)
-        target = (
-            "ctl00$PlaceHolderMain$dgvPermitList$gdvPermitList$ctl13$"
-            f"ctl{page_number + 1:02d}"
-        )
-        return self._post(form, target)
+        targets = NEXT_ANCHOR_RE.findall(html)
+        if not targets:
+            return None
+        return self._post(build_form(html), targets[-1])
 
     def _record_url(self, row: dict[str, Any]) -> str | None:
         """Build a stable public URL for a record.

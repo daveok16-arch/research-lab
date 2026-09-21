@@ -229,42 +229,33 @@ def coverage_report(db: Database) -> str:
     out.append(f"Generated {now}")
     out.append("")
     out.append(
-        "| City | Source | Earliest Date | Latest Date | Records | Commercial Records "
-        "| Mechanical Evidence | Notes |"
+        "| City | Source | Earliest Date | Latest Date | Retrieval Date | Records "
+        "| Commercial Records | Mechanical Evidence | Pages | Notes |"
     )
-    out.append("|---|---|---|---|---|---|---|---|")
+    out.append("|---|---|---|---|---|---|---|---|---|---|")
 
     rows = db.conn.execute(
         """
-        SELECT s.id, s.name, s.jurisdiction_city, s.market_coverage, s.coverage_note,
-               MIN(p.permit_date) AS earliest,
-               MAX(p.permit_date) AS latest,
-               COUNT(p.id) AS records,
-               SUM(CASE WHEN p.is_commercial = 1 THEN 1 ELSE 0 END) AS commercial_records,
-               SUM(CASE WHEN LOWER(COALESCE(p.permit_type,'')) LIKE '%mechanical%'
-                        THEN 1 ELSE 0 END) AS mechanical_records
+        SELECT s.id, s.name, s.jurisdiction_city, s.market_coverage,
+               c.earliest_date, c.latest_date, c.retrieval_date, c.record_count,
+               c.commercial_count, c.mechanical_count, c.pagination_pages,
+               c.pagination_notes, s.coverage_note
           FROM source s
-          LEFT JOIN permit p ON p.source_id = s.id
-         GROUP BY s.id
-         ORDER BY records DESC
+          LEFT JOIN source_coverage c ON c.source_id = s.id
+         ORDER BY COALESCE(c.record_count, 0) DESC, s.name
         """
     ).fetchall()
 
     for r in rows:
         city = r["jurisdiction_city"] or "Multi-city"
-        earliest = r["earliest"] or "—"
-        latest = r["latest"] or "—"
-        records = r["records"] or 0
-        commercial = r["commercial_records"] or 0
-        mechanical = r["mechanical_records"] or 0
-        notes = " ".join((r["coverage_note"] or "").split()) or (
-            f"Coverage: {r['market_coverage']}"
-        )
-        if len(notes) > 240:
-            notes = notes[:237] + "..."
+        notes = " ".join((r["pagination_notes"] or r["coverage_note"] or "").split())
+        if len(notes) > 220:
+            notes = notes[:217] + "..."
         out.append(
-            f"| {city} | {r['name']} | {earliest} | {latest} | {records} | {commercial} "
-            f"| {mechanical} | {notes} |"
+            f"| {city} | {r['name']} | {r['earliest_date'] or '—'} "
+            f"| {r['latest_date'] or '—'} | {r['retrieval_date'] or '—'} "
+            f"| {r['record_count'] or 0} | {r['commercial_count'] or 0} "
+            f"| {r['mechanical_count'] or 0} | {r['pagination_pages'] or '—'} | {notes} |"
         )
     out.append("")
 
