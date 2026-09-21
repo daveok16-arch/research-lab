@@ -265,6 +265,9 @@ trades:
       high_min_sqft: 10000
 
     # Statuses that indicate the project is moving toward construction or procurement.
+    # Values below were taken from the statuses actually returned by the live sources,
+    # not invented: Fort Worth's Current_Status domain, Dallas Accela's status column, and
+    # Collin CAD's permit types.
     active_status_keywords:
       - issued
       - approved
@@ -276,6 +279,15 @@ trades:
       - "approved with conditions"
       - "awaiting client reply"
       - "incomplete submittal"
+      - "inspection phase"
+      - "ready to issue"
+      - "temp co ready to issue"
+      - "pending co"
+      - "document received"
+      - "additional info required"
+      - "revisions required"
+      - "application about to expire"
+      - "payment due"
       - started
       - active
 

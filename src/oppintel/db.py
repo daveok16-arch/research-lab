@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS source (
     name               TEXT NOT NULL,
     publisher          TEXT,
     kind               TEXT NOT NULL,
+    jurisdiction_city  TEXT,
     market_coverage    TEXT,
     coverage_note      TEXT,
     portal_url         TEXT,
@@ -115,6 +116,8 @@ CREATE TABLE IF NOT EXISTS project (
     classification            TEXT,
     classification_score      INTEGER,
     classification_reasons    TEXT,
+    disputed_fields           TEXT,
+    discrepancies             TEXT,
     created_at                TEXT NOT NULL,
     updated_at                TEXT NOT NULL
 );
@@ -214,13 +217,14 @@ class Database:
     def upsert_source(self, cfg: Any) -> None:
         self.conn.execute(
             """
-            INSERT INTO source (id, name, publisher, kind, market_coverage, coverage_note,
-                                portal_url, reliability, notes, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO source (id, name, publisher, kind, jurisdiction_city, market_coverage,
+                                coverage_note, portal_url, reliability, notes, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 publisher = excluded.publisher,
                 kind = excluded.kind,
+                jurisdiction_city = excluded.jurisdiction_city,
                 market_coverage = excluded.market_coverage,
                 coverage_note = excluded.coverage_note,
                 portal_url = excluded.portal_url,
@@ -229,7 +233,8 @@ class Database:
                 updated_at = excluded.updated_at
             """,
             (
-                cfg.id, cfg.name, cfg.publisher, cfg.kind, cfg.market_coverage,
+                cfg.id, cfg.name, cfg.publisher, cfg.kind, cfg.jurisdiction_city,
+                cfg.market_coverage,
                 cfg.coverage_note, cfg.portal_url, cfg.reliability, cfg.notes,
                 datetime.now(timezone.utc).isoformat(),
             ),
@@ -401,9 +406,9 @@ class Database:
                 permit_date, project_status, owner, developer, general_contractor,
                 architect, mechanical_hvac_evidence, source_name, source_url, source_date,
                 last_verified, mechanical_evidence_tier, property_class, location_precision,
-                classification, classification_score, classification_reasons, created_at,
-                updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                classification, classification_score, classification_reasons, disputed_fields,
+                discrepancies, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key) DO UPDATE SET
                 project_name = excluded.project_name,
                 address = excluded.address,
@@ -430,6 +435,8 @@ class Database:
                 classification = excluded.classification,
                 classification_score = excluded.classification_score,
                 classification_reasons = excluded.classification_reasons,
+                disputed_fields = excluded.disputed_fields,
+                discrepancies = excluded.discrepancies,
                 updated_at = excluded.updated_at
             """,
             (
@@ -441,7 +448,9 @@ class Database:
                 project.architect, project.mechanical_hvac_evidence, project.source_name,
                 project.source_url, _iso(project.source_date), _iso(project.last_verified),
                 project.mechanical_evidence_tier, project.property_class,
-                project.location_precision, project.classification, project.classification_score, reasons, now, now,
+                project.location_precision, project.classification, project.classification_score, reasons,
+                json.dumps(project.disputed_fields or []),
+                json.dumps(project.discrepancies or []), now, now,
             ),
         )
         row = self.conn.execute(

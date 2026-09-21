@@ -8,3 +8,4 @@ reports/out/
 .pytest_cache/
 *.egg-info/
 .agent_tmp/
+reports/out/

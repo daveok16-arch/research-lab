@@ -8,6 +8,7 @@ assembles them into Project objects, and attaches Evidence to every asserted fie
 from __future__ import annotations
 
 import hashlib
+import html
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
@@ -163,6 +164,11 @@ class Project:
     classification_score: int | None = None
     classification_reasons: list[str] = field(default_factory=list)
 
+    #: Fields where two sources state different values. Both values are retained; nothing
+    #: is merged or silently resolved. See discrepancy.py.
+    discrepancies: list[dict[str, Any]] = field(default_factory=list)
+    disputed_fields: list[str] = field(default_factory=list)
+
     permits: list[Permit] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
     parties: list[ProjectParty] = field(default_factory=list)
@@ -299,10 +305,17 @@ def parse_sqft(value: Any) -> float | None:
 
 
 def clean_text(value: Any) -> str | None:
-    """Trim a source text value, treating the literal 'NULL' as absent."""
+    """Trim a source text value, treating the literal 'NULL' as absent.
+
+    HTML entities are decoded because several portals return text with them embedded. The
+    Dallas Accela interface returns "Remove &amp; replace (5) RTU package units", and an
+    undecoded ampersand would be presented to the customer as literal source text as well as
+    breaking keyword matching. The verbatim payload is preserved separately in the raw
+    landing zone, so decoding here does not lose the original.
+    """
     if value is None:
         return None
-    text = str(value).strip()
+    text = html.unescape(str(value)).strip()
     if not text or text.upper() in {"NULL", "N/A", "NA", "NONE"}:
         return None
     return text

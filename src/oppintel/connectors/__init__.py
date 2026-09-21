@@ -11,12 +11,14 @@ from typing import Any
 from ..config import load_sources
 from .base import BaseConnector, ConnectorError
 from .collin_cad_permits import CollinCadPermitsConnector
+from .dallas_accela_permits import DallasAccelaConnector
 from .dallas_permits import DallasGisPermitsConnector, DallasPermitsSocrataConnector
 from .fort_worth_permits import FortWorthPermitsConnector
 
 CONNECTOR_CLASSES: list[type[BaseConnector]] = [
     FortWorthPermitsConnector,
     CollinCadPermitsConnector,
+    DallasAccelaConnector,
     DallasGisPermitsConnector,
     DallasPermitsSocrataConnector,
 ]
@@ -45,6 +47,7 @@ def build_connector(source_id: str, defaults: dict[str, Any] | None = None) -> B
 __all__ = [
     "BaseConnector",
     "CollinCadPermitsConnector",
+    "DallasAccelaConnector",
     "DallasGisPermitsConnector",
     "DallasPermitsSocrataConnector",
     "FortWorthPermitsConnector",

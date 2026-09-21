@@ -195,11 +195,12 @@ I probed the candidate sources before writing any code. The results shape the st
 
 | Source | Platform | Live? | Key fields | Verdict |
 |---|---|---|---|---|
+| **DallasNow (Accela Citizen Access)** | ASP.NET WebForms | **Yes — current** | record number, type, address, description, status | **Primary for Dallas**; publishes `Commercial Mechanical Permit` |
 | Fort Worth Development Permits | ArcGIS REST | Yes, current | address, owner, job value, status, **`Mechanical` permit type** | **Primary** |
 | Collin CAD Building Permits | Socrata (data.texas.gov) | Yes, to 2026-12 | address, owner, value, building area, type | **Primary** — but publishes no trade permits, so no Tier-1 evidence |
-| Dallas Building Permits | Socrata | **No — ends 2019-12-31** | address, value, land use | Historical only |
-| Dallas Permits FY23-24 | ArcGIS | Yes but ends 2023-12 | address, type, value, area | Supplementary |
-| Dallas Certificates of Occupancy | Socrata | Ends 2022-11 | business name, sq ft | Supplementary |
+| Dallas Building Permits | Socrata | **No — ends 2019-12-31** | address, value, land use | Historical only, disabled |
+| Dallas Permits FY23-24 | ArcGIS | Yes but ends 2023-12 | address, type, value, area | Historical only, disabled |
+| Dallas GIS open data portal | ArcGIS Hub | **Requires sign-in** | — | Excluded |
 | TDLR TABS | HTML form | **Requires login** | — | Excluded |
 | TxSmartBuy ESBD | JS app | Renders client-side | — | Deferred |
 
@@ -232,18 +233,27 @@ deferred until its API is understood, so neither is in Phase 1.
 Reconnaissance and the first live runs produced findings that materially shape expectations.
 They belong in the design document rather than in tribal knowledge.
 
-**Dallas cannot currently be covered.** The flagship Socrata dataset stops on 31 Dec 2019.
-The GIS snapshot stops on 29 Dec 2023. Dallas is the largest city in the market, so the
-MVP's live coverage is genuinely incomplete. The platform reports this per source rather
-than implying full DFW coverage.
+**Dallas coverage was closed on 2026-09-21.** The Socrata extract (ends 2019-12-31) and the
+GIS layer (ends 2023-12-29) are both stale, so Dallas was previously an explicit gap. The
+current system is **DallasNow**, an Accela Citizen Access portal at
+`aca-prod.accela.com/DALLASTX`, which is public, login-free, and current. The verified request
+mechanism is documented in [`docs/dallas_source.md`](dallas_source.md).
 
-**Tier-1 mechanical discovery is currently a Fort Worth capability.** Collin CAD publishes
-permit types such as `Remodeling of Existing Structure`, `Finish Out`, and
-`New Construction` — it does not publish trade permits. Measured over 2,000 Collin rows,
-the source yields zero mechanical permit rows. Tier-1 evidence therefore exists only where
-a city publishes trade permits, which today means Fort Worth. Elsewhere, mechanical scope
-must come from Tier 2 (permit text) and will consequently be rarer. This is why the
-classification gate matters more than the scoring weights.
+**Dallas supplies Tier-1 mechanical evidence.** The portal publishes
+`Commercial Mechanical Permit` as a first-class record type. Together with Fort Worth's
+`Mechanical` type, two of the three sources in scope can evidence mechanical scope directly.
+Collin CAD still cannot, because it publishes no trade permits.
+
+**The Dallas portal publishes no value or area.** There is no declared job value and no floor
+area on an Accela record, so those fields remain `Not verified.` for Dallas projects. This
+directly limits how many Dallas projects can reach HIGH, because the significance gate needs
+one of building class, value, or footprint.
+
+**Dallas trade permits routinely describe maintenance, not projects.** A large share of
+`Commercial Mechanical Permit` records are like-for-like equipment replacements whose own
+disclaimer states that construction requires a separate permit. The construction-scope and
+service-work rules exclude them, which is why 120 Dallas mechanical permits yield 22 projects
+rather than 120.
 
 **A high declared value is not the same as a large building.** Collin CAD carries owner
 valuation records, so `permitvalue` values in the tens or hundreds of millions appear on
@@ -254,6 +264,11 @@ rows with no construction detail. A $200,000,000 record with no mechanical scope
 with no street number, such as `BLUE RIDGE TRL, PLANO`. The value and the source are real,
 but the property is not identified. These are held at `NEEDS_VERIFICATION` with an explicit
 reason, and their location precision is recorded as `approximate`.
+
+**Sources can disagree, and the platform does not resolve it.** Because Collin CAD and the
+city permit feeds both describe overlapping geographies, the same project can carry different
+values from different publishers. Both facts are retained and the field is flagged as
+disputed; see §5.5.
 
 ### 3.4 Collection mechanics
 
@@ -367,11 +382,11 @@ is never a black box.
 
 | Score | Label | Condition |
 |---|---|---|
-| ≥ 70 | HIGH | requires Tier-1/Tier-2 mechanical evidence **and** commercial scale |
+| ≥ 70 | HIGH | requires Tier-1/Tier-2 mechanical evidence **and** commercial scale **and** a stated building class, value, or footprint |
 | 40 – 69 | MEDIUM | requires a commercial class and a value or size signal |
 | < 40 | NEEDS_VERIFICATION | everything else, including thin records |
 
-Three gates are enforced in code rather than by arithmetic alone. Each was added because a
+Four gates are enforced in code rather than by arithmetic alone. Each was added because a
 live Phase 1 run produced a false positive that motivated it:
 
 1. **Mechanical-evidence gate.** A project cannot be HIGH on property class and value
@@ -388,6 +403,22 @@ live Phase 1 run produced a false positive that motivated it:
    service call. Without this gate a two-page Fort Worth sample produced 1,229 "projects"
    that were mostly residential service calls; with it, the same sample produces 68 genuine
    commercial projects.
+4. **Significance gate.** A HIGH record must identify a building class, a declared value, or
+   a footprint. The 2026-09-21 Dallas run produced 27 projects that were each a single
+   mechanical permit with no other context. Mechanical scope was confirmed, but nothing
+   established that the work was significant, so the label overstated the evidence. These
+   are now MEDIUM with a stated reason; HIGH fell from 30 to 2 on that run.
+
+Two further correctness rules apply to source text, both found the same way:
+
+- **Boilerplate is stripped before matching.** Dallas Accela appends a disclaimer to every
+  trade permit stating that the permit authorises work only for the approved trade and that
+  construction of any structure requires a separate permit. That disclaimer contains the
+  word "Construction", so leaving it in place meant the disclaimer *stating that a permit is
+  not construction work* was itself satisfying the construction-scope gate.
+- **Service-work language disqualifies a permit.** A description containing "like for like",
+  "replace existing unit", or "changeout" describes maintenance rather than a project, and is
+  excluded regardless of any construction keyword elsewhere in the text.
 
 The keyword matcher also requires whole-word matches. A substring test makes the roofing
 adverb "mechanically" register as mechanical scope.
@@ -405,6 +436,37 @@ sibling mechanical permit at the same address:
 The same project with no mechanical permit and no mechanical scope text scores 92, which
 still clears the numeric threshold — and is nonetheless held at MEDIUM by the evidence
 gate, with `classification_reasons` explaining that mechanical scope is unconfirmed.
+
+---
+
+### 5.5 Contradictory values across sources
+
+When two public sources state different values for the same field, the platform must not
+choose one silently. A quietly chosen value is indistinguishable from an invented one, and it
+fails the moment a customer checks a second source.
+
+The rule is therefore: **store both facts and identify the discrepancy.**
+
+The worked case the customer raised:
+
+```
+TDLR value:        $250,000,000
+City permit value: $264,000,000
+```
+
+Neither is averaged, summed, or replaced. Both are recorded as separate evidence rows with
+their own source, URL, record key, and date. The project field additionally carries:
+
+- `disputed_fields` — the list of field names in disagreement
+- `discrepancies` — the competing values with their citations
+- a classification reason stating that the disagreement is unresolved
+
+Numeric comparison uses a 0.5% relative tolerance so that ordinary rounding differences
+($4,300,000 versus $4,300,000.00) are not reported as disputes. Text comparison ignores case
+and whitespace, but `ACME HOLDINGS LLC` versus `ACME HOLDINGS INC` is a genuine discrepancy.
+
+Precedence still decides which value a record *displays*, so a project is readable. The
+discrepancy list is what stops that decision from being invisible.
 
 ---
 

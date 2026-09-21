@@ -69,6 +69,79 @@ PURE_TRADE_TYPE_KEYWORDS = (
     "refrigeration",
 )
 
+#: Boilerplate that appears in source descriptions and must not be treated as scope text.
+#: Dallas Accela appends a fixed disclaimer to every trade permit. It contains the word
+#: "Construction", so leaving it in place makes a mechanical permit look like a construction
+#: project: the disclaimer stating that a permit is *not* construction work was itself
+#: satisfying the construction-scope gate. Stripped before any keyword analysis.
+BOILERPLATE_PATTERNS = (
+    re.compile(r"\*\*this permit authorizes work only for the approved trade.*", re.I | re.S),
+    re.compile(
+        r"this permit authorizes work only for the approved trade.*?trade permits\.?",
+        re.I | re.S,
+    ),
+    re.compile(
+        r"construction, erection, or alteration of any structure will require a separate "
+        r"permit.*",
+        re.I | re.S,
+    ),
+)
+
+#: Phrases that mark a permit as trade-only service work rather than construction.
+#: A like-for-like replacement of an existing unit is maintenance, not a new build, and a
+#: mechanical contractor cannot bid it as a project package.
+TRADE_SERVICE_KEYWORDS = (
+    "like for like",
+    "like-for-like",
+    "replace existing unit",
+    "replacing existing unit",
+    "equipment replacement",
+    "change out",
+    "changeout",
+    "changing out",
+    "remove and replace",
+    "remove & replace",
+    "routine maintenance",
+    "preventive maintenance",
+    "service call",
+)
+
+
+def strip_boilerplate(text: str | None) -> str | None:
+    """Remove source boilerplate from a description before keyword analysis.
+
+    The verbatim text stays in the raw landing zone and in the evidence excerpt; this only
+    changes what the keyword matcher sees.
+    """
+    if not text:
+        return text
+    cleaned = text
+    for pattern in BOILERPLATE_PATTERNS:
+        cleaned = pattern.sub(" ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or None
+
+
+def is_trade_service_work(permit: Permit) -> bool:
+    """True when the permit describes like-for-like replacement or maintenance work.
+
+    Such work is real, but it is not a construction project: there is no new building, no
+    procurement cycle, and nothing to bid as a mechanical package.
+    """
+    text = strip_boilerplate(permit.work_description) or ""
+    subtype = (permit.permit_subtype or "").replace("_", " ")
+    haystack = f"{text} {subtype}".lower().strip()
+    if not haystack:
+        return False
+    return any(keyword in haystack for keyword in TRADE_SERVICE_KEYWORDS)
+
+
+def _scope_text(permit: Permit) -> str:
+    """The permit's own scope text, boilerplate removed, lowercased."""
+    parts = [permit.work_description, permit.land_use, permit.specific_use]
+    cleaned = " ".join(strip_boilerplate(p) or "" for p in parts if p)
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
 
 def has_construction_scope(permit: Permit, trade: TradeConfig) -> bool:
     """True when the permit describes construction work rather than a trade service call.
@@ -80,7 +153,14 @@ def has_construction_scope(permit: Permit, trade: TradeConfig) -> bool:
     A construction subtype such as "New" is not sufficient on a pure trade permit: a
     "Mechanical / New" row means a new mechanical installation, so those rows must supply
     actual construction keywords in their description to count.
+
+    Boilerplate is stripped first, and explicit service-work language ("like for like",
+    "replace existing unit") disqualifies the permit regardless of keywords, because that
+    text describes maintenance rather than construction.
     """
+    if is_trade_service_work(permit):
+        return False
+
     permit_type = (permit.permit_type or "").lower()
     subtype = (permit.permit_subtype or "").strip().lower()
     is_pure_trade = any(k in permit_type for k in PURE_TRADE_TYPE_KEYWORDS)
@@ -88,7 +168,7 @@ def has_construction_scope(permit: Permit, trade: TradeConfig) -> bool:
     if subtype and subtype in CONSTRUCTION_SUBTYPES and not is_pure_trade:
         return True
 
-    text = permit.combined_text
+    text = _scope_text(permit)
     if not text:
         return False
     return any(k in text for k in trade.construction_activity_keywords)

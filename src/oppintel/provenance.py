@@ -46,9 +46,11 @@ def assert_field(
     A blank or sentinel value is never written. This is the guard that stops upstream
     noise such as the literal string "NULL" from becoming a published fact.
 
-    `overwrite=False` implements first-writer-wins precedence, which the assembler uses so
-    that the primary permit's value is not clobbered by a later trade permit at the same
-    address.
+    `overwrite=False` implements first-writer-wins precedence for the *displayed value*, which
+    the assembler uses so that the primary permit's value is not clobbered by a later trade
+    permit at the same address. It does not suppress the evidence row: if a second source
+    states a different value, that fact is still recorded so the disagreement can be
+    detected and surfaced rather than silently resolved by precedence.
 
     `evidence_only=True` records the evidence without touching the field. Used for values a
     project legitimately has several of, such as the permit numbers of every contributing
@@ -64,11 +66,24 @@ def assert_field(
         raise ProvenanceError(
             f"Refusing to assert {field_name!r} without an identified source."
         )
-    if not evidence_only and not overwrite and getattr(project, field_name, None) is not None:
-        return False
 
+    value_was_set = False
     if not evidence_only:
-        setattr(project, field_name, value)
+        currently = getattr(project, field_name, None)
+        if overwrite or currently is None:
+            setattr(project, field_name, value)
+            value_was_set = True
+
+    # Identical facts from the same source are recorded once. Different values from
+    # different sources are both recorded, which is what makes a contradiction visible
+    # rather than silently resolved by precedence.
+    for existing in project.evidence:
+        if (
+            existing.field_name == field_name
+            and existing.source_id == source_id
+            and existing.value == str(value)
+        ):
+            return value_was_set
 
     evidence = Evidence(
         field_name=field_name,

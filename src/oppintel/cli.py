@@ -141,6 +141,39 @@ def cmd_projects(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """Write the coverage report and, optionally, a validation report for HIGH projects."""
+    from pathlib import Path
+
+    from .reporting import coverage_report, validation_report
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    with Database(args.db) as db:
+        db.init_schema()
+        coverage_path = out_dir / "coverage_report.md"
+        coverage_path.write_text(coverage_report(db))
+
+        ids = [
+            r["id"]
+            for r in db.conn.execute(
+                """
+                SELECT id FROM project
+                 WHERE classification = ?
+                 ORDER BY classification_score DESC
+                """,
+                ("HIGH",),
+            )
+        ]
+        validation_path = out_dir / "validation_report.md"
+        validation_path.write_text(validation_report(db, ids))
+
+    print(f"Coverage report:   {coverage_path}")
+    print(f"Validation report: {validation_path}  ({len(ids)} projects)")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="oppintel", description="DFW construction opportunity intelligence (MVP)"
@@ -169,6 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
     projects.add_argument("--limit", type=int, default=25)
     projects.add_argument("--json", action="store_true")
     projects.set_defaults(func=cmd_projects)
+
+    report = sub.add_parser(
+        "report", help="Write the coverage report and a validation report for HIGH projects"
+    )
+    report.add_argument("--out-dir", default="reports/out")
+    report.set_defaults(func=cmd_report)
 
     return parser
 

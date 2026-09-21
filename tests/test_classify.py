@@ -76,10 +76,14 @@ def test_small_roofing_job_with_incidental_hvac_mention_is_not_high(trade):
     assert any("Held below HIGH" in r for r in project.classification_reasons)
 
 
-def test_small_but_explicit_mechanical_permit_can_be_high(trade):
-    """A Tier-1 mechanical permit is direct evidence and is exempt from the scale floor."""
+def test_small_but_explicit_mechanical_permit_with_context_can_be_high(trade):
+    """A Tier-1 mechanical permit is direct evidence and is exempt from the *scale* floor.
+
+    The significance gate is separate from the scale gate: a project still needs a building
+    class, a declared value, or a footprint before HIGH is warranted.
+    """
     project = build_project(
-        estimated_project_value=None,
+        estimated_project_value=300_000.0,
         square_footage=None,
         property_class=None,
         project_status="Issued",
@@ -88,6 +92,27 @@ def test_small_but_explicit_mechanical_permit_can_be_high(trade):
     )
     classify(project, trade, reference_date=REFERENCE)
     assert project.classification == HIGH
+
+
+def test_bare_mechanical_permit_with_no_context_is_not_high(trade):
+    """HIGH asserts significance, not merely that mechanical work exists.
+
+    A standalone Dallas trade permit confirms mechanical scope but carries no building class,
+    declared value, or footprint. Earlier live runs labelled 27 of these HIGH, which
+    overstated what the evidence supports; they are now held at MEDIUM with a stated reason.
+    """
+    project = build_project(
+        estimated_project_value=None,
+        square_footage=None,
+        property_class=None,
+        project_type="Commercial (unspecified)",
+        project_status="Inspection Phase",
+        mechanical_evidence_tier=1,
+        mechanical_hvac_evidence="Tier 1: Permit COM-MEC-26-002396 is filed as 'Commercial Mechanical Permit'",
+    )
+    classify(project, trade, reference_date=REFERENCE)
+    assert project.classification == MEDIUM
+    assert any("significance is not established" in r for r in project.classification_reasons)
 
 
 def test_data_center_with_mechanical_scope_is_high(trade):

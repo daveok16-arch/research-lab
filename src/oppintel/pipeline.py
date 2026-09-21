@@ -22,6 +22,7 @@ from .classify import classify
 from .config import CONFIG_DIR, SourceConfig, active_trade, load_sources, load_trades
 from .connectors import build_connector, connector_ids
 from .db import Database
+from .discrepancy import find_discrepancies, mark_disputed
 from .models import Permit, RawPermit, normalize_address, utcnow
 
 log = logging.getLogger(__name__)
@@ -152,6 +153,9 @@ class Pipeline:
             project = assemble_project(
                 address_key, cluster, self.trade, self.source_names, observed_at=observed,
             )
+            # Discrepancies are detected from the recorded evidence before classification, so
+            # the classifier's reasons include any unresolved disagreement between sources.
+            mark_disputed(project, find_discrepancies(project))
             classify(project, self.trade)
             project_id = self.db.upsert_project(project)
             for permit in cluster:

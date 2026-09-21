@@ -46,42 +46,66 @@ PYTHONPATH=src python -m pytest tests/ -q
 
 ## What it currently finds
 
-Measured against live sources (2 pages each, Fort Worth plus Collin CAD):
+Measured against live sources (Fort Worth, Collin CAD, and Dallas via Accela):
 
 | Metric | Result |
 |---|---|
-| Rows ingested | 4,000 permits |
-| Commercial projects assembled | 1,201 |
-| HIGH | 3 |
-| MEDIUM | 124 |
-| NEEDS_VERIFICATION | 1,074 |
-| Projects with mechanical evidence | 7 (1 Tier-1, 6 Tier-2) |
+| Rows ingested | 5,033 permits |
+| Commercial projects assembled | 692 |
+| HIGH | 2 |
+| MEDIUM | 86 |
+| NEEDS_VERIFICATION | 604 |
+| Projects with mechanical evidence | 29 |
+| Dallas coverage | 2026-08-03 → 2026-09-21 |
 
-A small HIGH count is the intended outcome, not a shortcoming. The classification gates are
-designed so that a project is only called HIGH when a public record actually documents
-mechanical scope *and* the project is commercial-scale and locatable. Under-claiming keeps
-the list worth reading.
+A small HIGH count is the intended outcome, not a shortcoming. Four gates see to that: a
+project is only called HIGH when a public record documents mechanical scope, the project is
+commercial-scale, its address is precise enough to act on, and something establishes that it
+is significant. Under-claiming keeps the list worth reading.
+
+Reports:
+
+```bash
+python -m oppintel.cli report          # writes reports/out/*.md
+```
 
 ## Sources
 
 | Source | Live? | Notes |
 |---|---|---|
-| Fort Worth Development Permits (ArcGIS) | Current | The only source that publishes a `Mechanical` permit type, giving Tier-1 HVAC evidence |
-| Collin CAD Building Permits (Socrata) | Current to 2026 | Plano, Frisco, McKinney, Allen, Prosper, Celina and others. No trade permits |
-| Dallas Permits FY2023-24 (ArcGIS) | Historical, ends 2023-12 | Supplementary |
-| Dallas Building Permits (Socrata) | Stale, ends 2019-12 | Disabled by default |
+| **DallasNow / Accela** (`aca-prod.accela.com/DALLASTX`) | **Current** | The real current Dallas system. Publishes `Commercial Mechanical Permit` as a first-class type. No declared value or floor area. Mechanism documented in `docs/dallas_source.md` |
+| Fort Worth Development Permits (ArcGIS) | Current | Publishes a `Mechanical` permit type, giving Tier-1 HVAC evidence |
+| Collin CAD Building Permits (Socrata) | Current to 2026 | Plano, Frisco, McKinney, Allen, Prosper, Celina and others. No trade permits, so no Tier-1 evidence |
+| Dallas Permits FY2023-24 (ArcGIS) | Historical, ends 2023-12 | Disabled |
+| Dallas Building Permits (Socrata) | Stale, ends 2019-12 | Disabled |
+
+### Closing the Dallas gap
+
+Dallas was previously an explicit gap: the open-data extract stops on 2019-12-31 and the
+GIS layer on 2023-12-29. The current system is **DallasNow**, an Accela Citizen Access
+portal. It is public, login-free, and returns records dated the same day.
+
+Reaching it required three things, all documented and reproducible in
+[`docs/dallas_source.md`](docs/dallas_source.md):
+
+1. a session-scoped `__VIEWSTATE` taken from a `GET` in the same session,
+2. the session cookies, and
+3. `Origin` and `Referer` headers — the non-obvious requirement. Without them an otherwise
+   valid request returns an error page.
+
+The portal's "Download results" control was tested and returns re-rendered HTML, not a file,
+so the connector paginates the result grid instead.
 
 ### Honest coverage limits
 
-- **Dallas is not currently covered.** Its public feeds stop in 2023 (GIS) and 2019
-  (Socrata). Dallas is the largest city in the market, and the dashboard reports this gap
-  per source rather than implying complete DFW coverage.
-- **Tier-1 mechanical evidence is a Fort Worth capability.** Collin CAD does not publish
-  trade permits, so mechanical scope there must come from permit text.
-- **`architect` is almost always `Not verified.`** No free DFW source publishes the
-  architect of record. The platform says so instead of guessing.
-- **TDLR TABS was excluded** because it requires an account, and paid sources were excluded
-  by design.
+- **Dallas publishes no value or floor area.** Those fields read `Not verified.` for Dallas
+  projects, which limits how many can reach HIGH.
+- **Tier-1 mechanical evidence exists only where a city publishes trade permits**, which is
+  Dallas and Fort Worth. Collin CAD cannot supply it.
+- **`architect` is almost always `Not verified.`** No free DFW source publishes the architect
+  of record.
+- **TDLR TABS and the Dallas GIS open data portal were excluded** because both require an
+  account, and paid sources were excluded by design.
 
 ## Architecture
 
@@ -112,15 +136,19 @@ config/trades.yaml       trade profile: keywords, weights, thresholds, gates
 src/oppintel/
   models.py              Permit, Project, Evidence, ProjectParty + parsers
   provenance.py          the not-verified rule; assert_field is the only way to set a fact
-  normalize.py           commercial filtering and mechanical-evidence detection
+  normalize.py           commercial filtering, boilerplate stripping, mechanical detection
   assemble.py            permit clustering into projects
-  classify.py            HIGH / MEDIUM / NEEDS_VERIFICATION with reasons
+  classify.py            HIGH / MEDIUM / NEEDS_VERIFICATION with four gates
+  discrepancy.py         contradictory values across sources: both kept, never merged
+  reporting.py           coverage and field-level validation reports
   db.py                  SQLite schema and queries
   pipeline.py            orchestration of the stages above
   cli.py                 ingest / assemble / stats / projects
   connectors/            per-source fetch and normalize
-tests/                   real code paths, no mocks
+tests/                   124 tests, real code paths, no mocks
 docs/DESIGN.md           full design for phases 1-4
+docs/dallas_source.md    verified Dallas request mechanism
+reports/out/             generated coverage and validation reports
 ```
 
 ## Status

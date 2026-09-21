@@ -122,8 +122,9 @@ def classify(
 
     # A scale floor stops small jobs from being sold as major opportunities. A $18,000
     # roof replacement that happens to mention "HVAC curbs" in passing is not an HVAC
-    # opportunity. Tier-1 mechanical permits are exempt, because a mechanical permit is
-    # direct evidence of mechanical work regardless of the declared job value.
+    # opportunity. Tier-1 mechanical permits are exempt from the value/area requirement,
+    # because a mechanical permit is direct evidence of mechanical work whatever the
+    # declared job value.
     min_value = thresholds.get("high_min_value")
     min_sqft = thresholds.get("high_min_sqft")
     if label == HIGH and project.mechanical_evidence_tier != 1:
@@ -138,6 +139,20 @@ def classify(
                 "Held below HIGH: the record shows no value or floor area large enough to "
                 "indicate a commercial-scale mechanical opportunity. Confirm scale with the "
                 "issuing jurisdiction."
+            )
+
+    # HIGH asserts significance, not merely that mechanical work exists. A trade permit that
+    # stands alone tells us mechanical scope is confirmed and nothing else: no building
+    # class, no declared value, no footprint. Such a record is genuinely useful but it is not
+    # a headline opportunity, and calling it HIGH would overstate what the evidence supports.
+    # A named building class, a declared value, or a footprint satisfies this gate.
+    if label == HIGH and not commercial_class:
+        if project.estimated_project_value is None and project.square_footage is None:
+            label = MEDIUM
+            reasons.append(
+                "Held below HIGH: mechanical scope is confirmed, but the record identifies no "
+                "building class, declared value, or floor area, so project significance is not "
+                "established. Treat as a confirmed mechanical lead, not a headline opportunity."
             )
 
     if label == MEDIUM and thresholds.get("medium_requires_commercial_class"):

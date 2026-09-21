@@ -51,11 +51,38 @@ sources:
       Celina, Wylie and others). Carries owner name, declared value, and building area.
       Includes an explicit Commercial/Residential flag used to filter before assembly.
 
+  - id: dallas_accela_permits
+    name: "City of Dallas Building Records (DallasNow / Accela)"
+    publisher: "City of Dallas, TX — Planning & Development"
+    kind: accela
+    enabled: true
+    # Verified live 2026-09-21: records returned dated the same day.
+    market_coverage: current
+    base_url: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    portal_url: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    search_url_template: "https://aca-prod.accela.com/DALLASTX/Cap/CapHome.aspx?module=Building&TabName=Building"
+    # The portal addresses records by a three-part capID, not by record number, and exposes
+    # no per-record permalink. Records are traceable by searching the record number.
+    source_url_template: null
+    jurisdiction_city: "Dallas"
+    jurisdiction_state: "TX"
+    reliability: 0.9
+    coverage_note: >
+      Current. Replaces the stale Socrata extract (ends 2019-12-31) and GIS layer (ends
+      2023-12-29) for Dallas. Publishes Commercial Mechanical Permit as a first-class
+      record type, which supplies Tier-1 mechanical evidence directly from the City. The
+      portal exposes no declared job value or floor area, so those fields remain
+      unverified for Dallas records.
+    notes: >
+      ASP.NET WebForms public search. Requires a session-scoped __VIEWSTATE plus Origin and
+      Referer headers; see docs/dallas_source.md for the verified request mechanism.
+      Paginates ten records per page and saturates its result counter at "100+".
+
   - id: dallas_gis_permits
     name: "City of Dallas Building Permits FY2023-24"
     publisher: "City of Dallas, TX (DallasGIS)"
     kind: arcgis
-    enabled: true
+    enabled: false
     # Verified 2026-09-20: maximum ISSUE_DATE is 2023-12-29. This source is historical.
     market_coverage: historical
     coverage_note: >
