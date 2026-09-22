@@ -69,8 +69,23 @@ is significant. Under-claiming keeps the list worth reading.
 Reports:
 
 ```bash
-python -m oppintel.cli report          # writes reports/out/*.md
+python -m oppintel.cli report          # coverage + validation reports
+python -m oppintel.cli brief --limit 5 # customer brief + internal research report
 ```
+
+Two report formats are generated from the same verified records:
+
+- **Customer brief** — 5 opportunities, business language, one citation per fact, no
+  database internals. Contains no opportunity described as an open bid.
+- **Internal research report** — the full audit trail: field verdicts, classification
+  arithmetic, every contributing permit, and source provenance.
+
+### Procurement status
+
+No source in this market publishes bid status, so no opportunity is ever presented as an
+open bid. Each carries one of three values: `Confirmed open` (requires explicit bid
+evidence), `Evidence found, status unclear` (active work, procurement unknown), or
+`Not verified`. Completed and withdrawn projects are excluded from customer briefs.
 
 ## Sources
 

@@ -174,6 +174,50 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Write the customer-facing brief and/or the internal research report."""
+    from pathlib import Path
+
+    from .report_generator import ReportBuilder
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    with Database(args.db) as db:
+        db.init_schema()
+        builder = ReportBuilder(db)
+
+        if args.project_ids:
+            ids = [int(x) for x in args.project_ids.split(",")]
+        else:
+            classifications = tuple(args.classification or ['HIGH'])
+            ids = builder.select_opportunities(
+                classifications=classifications,
+                limit=args.limit,
+                require_active=not args.include_inactive,
+            )
+
+        written: list[Path] = []
+        if args.format in ("customer", "both"):
+            path = out_dir / "customer_brief.md"
+            path.write_text(builder.customer_brief(ids, market=args.market, title=args.title))
+            written.append(path)
+        if args.format in ("internal", "both"):
+            path = out_dir / "internal_report.md"
+            path.write_text(builder.internal_report(ids, market=args.market))
+            written.append(path)
+
+    print(f"Opportunities: {len(ids)}")
+    for path in written:
+        print(f"Wrote {path}")
+    if not ids:
+        print(
+            "No opportunities matched. Reports were still written so the empty state is "
+            "visible rather than silently skipped."
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="oppintel", description="DFW construction opportunity intelligence (MVP)"
@@ -208,6 +252,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("--out-dir", default="reports/out")
     report.set_defaults(func=cmd_report)
+
+    brief = sub.add_parser(
+        "brief", help="Generate the customer brief and/or the internal research report"
+    )
+    brief.add_argument(
+        "--format", choices=["customer", "internal", "both"], default="both"
+    )
+    brief.add_argument("--limit", type=int, default=5, help="Number of opportunities")
+    brief.add_argument(
+        "--classification", action="append", default=None,
+        choices=["HIGH", "MEDIUM", "NEEDS_VERIFICATION"],
+        help="Classification to include (repeatable). Defaults to HIGH.",
+    )
+    brief.add_argument("--project-ids", help="Explicit comma-separated project ids")
+    brief.add_argument("--market", default="Dallas–Fort Worth, TX")
+    brief.add_argument("--title", default=None)
+    brief.add_argument(
+        "--include-inactive", action="store_true",
+        help="Include projects whose procurement status is unverified (completed work)",
+    )
+    brief.add_argument("--out-dir", default="reports/out")
+    brief.set_defaults(func=cmd_brief)
 
     return parser
 

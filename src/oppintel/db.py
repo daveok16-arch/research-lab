@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS project (
     mechanical_evidence_tier  INTEGER,
     property_class            TEXT,
     location_precision        TEXT,
+    procurement_status        TEXT,
     classification            TEXT,
     classification_score      INTEGER,
     classification_reasons    TEXT,
@@ -422,9 +423,10 @@ class Database:
                 permit_date, project_status, owner, developer, general_contractor,
                 architect, mechanical_hvac_evidence, source_name, source_url, source_date,
                 last_verified, mechanical_evidence_tier, property_class, location_precision,
-                classification, classification_score, classification_reasons, disputed_fields,
-                discrepancies, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                procurement_status, classification, classification_score,
+                classification_reasons, disputed_fields, discrepancies, created_at,
+                updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(project_key) DO UPDATE SET
                 project_name = excluded.project_name,
                 address = excluded.address,
@@ -448,6 +450,7 @@ class Database:
                 mechanical_evidence_tier = excluded.mechanical_evidence_tier,
                 property_class = excluded.property_class,
                 location_precision = excluded.location_precision,
+                procurement_status = excluded.procurement_status,
                 classification = excluded.classification,
                 classification_score = excluded.classification_score,
                 classification_reasons = excluded.classification_reasons,
@@ -464,7 +467,8 @@ class Database:
                 project.architect, project.mechanical_hvac_evidence, project.source_name,
                 project.source_url, _iso(project.source_date), _iso(project.last_verified),
                 project.mechanical_evidence_tier, project.property_class,
-                project.location_precision, project.classification, project.classification_score, reasons,
+                project.location_precision, project.procurement_status, project.classification,
+                project.classification_score, reasons,
                 json.dumps(project.disputed_fields or []),
                 json.dumps(project.discrepancies or []), now, now,
             ),

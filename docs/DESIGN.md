@@ -559,6 +559,42 @@ rule forbids, this section is assembled from recorded reasons only. Example outp
 - Reports are dated and state the data-freshness limits for their market.
 - No summarised total is presented as complete when a major city (Dallas) is known stale.
 
+### 7.5 Procurement status
+
+Whether work is currently out to bid is a claim about the market, not about the permit
+record. No configured source publishes bid status, so the platform cannot know it and must
+not imply it. Three values are permitted:
+
+| Value | Meaning |
+|---|---|
+| `Confirmed open` | a source explicitly advertises the work for bid or award |
+| `Evidence found, status unclear` | a source shows active work, but says nothing about procurement |
+| `Not verified` | nothing supports any procurement statement |
+
+`Confirmed open` is therefore effectively unreachable in this market, which is the correct
+outcome rather than a limitation to work around. An issued permit reads as
+`Evidence found, status unclear`, never as an open bid.
+
+Completion is tested before activity, because a status can carry both. `Final CO Issued`
+contains the active word "issued" but means the building is finished, so it is
+`Not verified` and is excluded from customer briefs. Matching is word-boundary based, so
+`Incomplete Submittal` — an active status — is not read as "complete".
+
+### 7.6 Two report formats
+
+**Customer brief.** Five opportunities, ordered by strength. Per opportunity: location,
+project type, status, classification, a plain-language "why it may matter", the mechanical
+evidence stated directly, a key-facts table with one citation per row, the procurement
+status with an explanation, any source disagreement, and the source records. It contains no
+scoring arithmetic, no permit grids and no database internals.
+
+**Internal research report.** The full audit trail: field-level verification with verdicts
+and excerpts, the raw classification reasoning, every contributing permit, source
+provenance with the number of fields each record supports, and any discrepancies. This is
+the document used to answer "where did this come from?" in full.
+
+Both are generated from the same records by one class, so the two formats cannot disagree.
+
 ---
 
 ## 8. MVP implementation plan

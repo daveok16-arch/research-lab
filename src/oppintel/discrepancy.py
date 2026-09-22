@@ -96,10 +96,14 @@ def find_discrepancies(
     fields: tuple[str, ...] = MATERIAL_FIELDS,
     relative_tolerance: float = DEFAULT_RELATIVE_TOLERANCE,
 ) -> list[Discrepancy]:
-    """Find fields where the evidence rows disagree.
+    """Find fields where two *different sources* state different values.
 
-    Operates on the recorded evidence, not on the project's resolved field values, so a
-    disagreement that the assembler resolved by precedence is still surfaced.
+    Only cross-source disagreement counts. A project legitimately spans several permits from
+    the same publisher — a Dallas building has a mechanical, an electrical and a plumbing
+    permit with three different dates and three different statuses — and treating those as
+    contradictions produced thousands of spurious disputes. A dispute is only real when two
+    independent publishers disagree about the same fact, because that is the case a customer
+    cannot resolve by looking at one source.
     """
     found: list[Discrepancy] = []
     for name in fields:
@@ -107,8 +111,22 @@ def find_discrepancies(
         if len(rows) < 2:
             continue
 
-        distinct: list[Evidence] = []
+        # One representative value per source; a source cannot contradict itself here.
+        by_source: dict[str, Evidence] = {}
         for row in rows:
+            existing = by_source.get(row.source_id)
+            if existing is None or not values_agree(row.value, existing.value, relative_tolerance):
+                # Keep the first value seen for this source; later permits from the same
+                # publisher describe additional scope, not a competing fact.
+                by_source.setdefault(row.source_id, row)
+
+        if len(by_source) < 2:
+            continue
+
+        values = list(by_source.values())
+        # Confirm the sources actually disagree with each other.
+        distinct: list[Evidence] = []
+        for row in values:
             if not any(values_agree(row.value, other.value, relative_tolerance) for other in distinct):
                 distinct.append(row)
         if len(distinct) < 2:
