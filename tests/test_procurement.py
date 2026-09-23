@@ -16,10 +16,12 @@ import pytest
 from oppintel.models import Project
 from oppintel.procurement import (
     ACTIVE_PROCUREMENT_STATUS_PHRASES,
+    CLOSED,
     CONFIRMED_OPEN,
     EVIDENCE_FOUND,
     NOT_VERIFIED,
     PROCUREMENT_STATES,
+    UNAVAILABLE_STATES,
     is_claimable,
     procurement_explanation,
     procurement_status,
@@ -99,18 +101,28 @@ def test_active_status_can_never_be_confirmed_open():
 # --- completed and dead work ---------------------------------------------------
 
 @pytest.mark.parametrize("status", OBSERVED_CLOSED)
-def test_closed_statuses_are_not_verified(status):
-    """Finished or withdrawn work supports no procurement claim at all."""
-    assert procurement_status(project(status)) == NOT_VERIFIED
+def test_closed_statuses_are_reported_as_closed(status):
+    """Finished or withdrawn work is a *known* non-opportunity, not an unknown.
+
+    Distinguishing CLOSED from NOT_VERIFIED matters to a reader: "this work is finished" and
+    "we cannot tell whether this is live" call for different actions, and collapsing them
+    would hide a fact the sources did establish.
+    """
+    assert procurement_status(project(status)) == CLOSED
+
+
+@pytest.mark.parametrize("status", OBSERVED_CLOSED)
+def test_closed_statuses_are_unavailable(status):
+    assert procurement_status(project(status)) in UNAVAILABLE_STATES
 
 
 def test_final_co_issued_is_not_active():
     """Regression: 'Final CO Issued' contains 'issued' and was read as active work."""
-    assert procurement_status(project("Final CO Issued")) == NOT_VERIFIED
+    assert procurement_status(project("Final CO Issued")) == CLOSED
 
 
 def test_tco_issued_is_not_active():
-    assert procurement_status(project("TCO Issued")) == NOT_VERIFIED
+    assert procurement_status(project("TCO Issued")) == CLOSED
 
 
 def test_closed_complete_is_not_claimable():

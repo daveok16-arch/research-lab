@@ -77,8 +77,8 @@ def test_missing_fields_render_as_not_verified(tmp_path):
 
     # GC, architect and developer are absent from every free source in this market.
     brief = builder.customer_brief(ids)
-    assert "General contractor | Not verified" in brief
-    assert "Architect | Not verified" in brief
+    assert "**GC:** Not verified" in brief
+    assert "**Architect:** Not verified" in brief
     db.close()
 
 
@@ -156,7 +156,7 @@ def test_unsupported_gc_claim_cannot_appear(tmp_path):
     builder = ReportBuilder(db)
     ids = [int(r["id"]) for r in db.conn.execute("SELECT id FROM project")]
     brief = builder.customer_brief(ids)
-    assert "| General contractor | Not verified |" in brief
+    assert "**GC:** Not verified" in brief
     db.close()
 
 
@@ -179,7 +179,7 @@ def test_architect_and_developer_stay_unverified_across_the_brief(tmp_path):
     builder = ReportBuilder(db)
     ids = [int(r["id"]) for r in db.conn.execute("SELECT id FROM project")]
     brief = builder.customer_brief(ids)
-    assert "Architect | Not verified" in brief
+    assert "**Architect:** Not verified" in brief
     db.close()
 
 
@@ -221,7 +221,7 @@ def test_completed_work_is_excluded_from_the_customer_brief(tmp_path):
         "SELECT classification, procurement_status FROM project"
     ).fetchone()
     assert row["classification"] != "HIGH"
-    assert row["procurement_status"] == "Not verified"
+    assert row["procurement_status"] == "Closed"
 
     builder = ReportBuilder(db)
     assert builder.select_opportunities(require_active=True) == []
@@ -251,7 +251,13 @@ def test_active_mechanical_lead_is_available_but_not_headline(tmp_path):
 
     builder = ReportBuilder(db)
     assert builder.select_opportunities(classifications=("HIGH",)) == []
-    assert builder.select_opportunities(classifications=("MEDIUM",))
+    # It is a genuine lead but states no significance fact, so the eligibility filter
+    # keeps it out of a customer brief. It stays selectable when the filter is
+    # bypassed, which is how the internal report can still surface it.
+    assert builder.select_opportunities(classifications=("MEDIUM",)) == []
+    assert builder.select_opportunities(
+        classifications=("MEDIUM",), require_eligibility=False
+    )
     db.close()
 
 
@@ -488,7 +494,7 @@ def test_empty_selection_produces_a_valid_document(tmp_path):
     builder = ReportBuilder(db)
     brief = builder.customer_brief([])
     assert "Opportunities in this brief:** 0" in brief
-    assert "# Commercial HVAC Opportunities" in brief
+    assert "# DFW Commercial HVAC Opportunity Brief" in brief
     db.close()
 
 

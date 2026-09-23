@@ -563,37 +563,85 @@ rule forbids, this section is assembled from recorded reasons only. Example outp
 
 Whether work is currently out to bid is a claim about the market, not about the permit
 record. No configured source publishes bid status, so the platform cannot know it and must
-not imply it. Three values are permitted:
+not imply it. Four values are permitted:
 
 | Value | Meaning |
 |---|---|
 | `Confirmed open` | a source explicitly advertises the work for bid or award |
 | `Evidence found, status unclear` | a source shows active work, but says nothing about procurement |
 | `Not verified` | nothing supports any procurement statement |
+| `Closed` | a source shows the work is finished, expired or withdrawn |
 
 `Confirmed open` is therefore effectively unreachable in this market, which is the correct
 outcome rather than a limitation to work around. An issued permit reads as
 `Evidence found, status unclear`, never as an open bid.
 
+`Closed` is kept distinct from `Not verified` deliberately. "This work is finished" and "we
+cannot tell whether this is live" call for different actions, and collapsing them would hide
+a fact the sources did establish. Measured on the live database, 688 projects are `Closed`
+and are excluded from customer output.
+
 Completion is tested before activity, because a status can carry both. `Final CO Issued`
-contains the active word "issued" but means the building is finished, so it is
-`Not verified` and is excluded from customer briefs. Matching is word-boundary based, so
-`Incomplete Submittal` — an active status — is not read as "complete".
+contains the active word "issued" but means the building is finished. Matching is
+word-boundary based, so `Incomplete Submittal` — an active status — is not read as "complete".
+
+Every customer brief carries this notice verbatim:
+
+> Public permit evidence does not by itself confirm that the HVAC/mechanical package is
+> currently available for bid.
 
 ### 7.6 Two report formats
 
-**Customer brief.** Five opportunities, ordered by strength. Per opportunity: location,
-project type, status, classification, a plain-language "why it may matter", the mechanical
-evidence stated directly, a key-facts table with one citation per row, the procurement
-status with an explanation, any source disagreement, and the source records. It contains no
-scoring arithmetic, no permit grids and no database internals.
+**Customer brief** (`reports/out/customer_brief.md`). Five opportunities, ordered by
+strength. Header carries the recipient, date and market. Each opportunity carries location,
+project type, mechanical evidence, construction/activity status, procurement status with an
+explanation, project significance, value, square footage, owner/developer, GC, architect,
+"why it was identified", "what is not verified", any source disagreement, and the source
+records with a resolvable URL. It contains no scoring arithmetic, no permit grids and no
+database internals.
 
-**Internal research report.** The full audit trail: field-level verification with verdicts
-and excerpts, the raw classification reasoning, every contributing permit, source
-provenance with the number of fields each record supports, and any discrepancies. This is
-the document used to answer "where did this come from?" in full.
+**Internal research report** (`reports/out/internal_report.md`). The full audit trail:
+field-level verification with verdicts and excerpts, the raw classification reasoning, every
+contributing permit, source provenance with the number of fields each record supports, and
+any discrepancies.
 
 Both are generated from the same records by one class, so the two formats cannot disagree.
+
+### 7.7 Customer-brief eligibility
+
+An opportunity reaches a customer brief only when every criterion in `eligibility.py` holds:
+
+1. not completed (`Closed` or `Not verified` procurement is rejected)
+2. commercial construction evidence
+3. mechanical/HVAC evidence at tier 1 or 2
+4. classification HIGH or MEDIUM
+5. at least one significance fact — a building class, declared value or footprint
+6. not service, repair, maintenance or replacement work
+7. not plumbing-only or electrical-only
+
+Confirmed open bidding is **not** required, because no configured source can establish it.
+Measured on the live database, 43 of 3,940 projects are customer-brief eligible. The reason
+each selected opportunity was included is stored and printed, so selection is explainable
+rather than a black box.
+
+### 7.8 Building identity and duplicate suites
+
+A single building can hold many suite-level records, and each assembles into its own project.
+Measured live, 316 base street addresses hold more than one project and the largest group is
+22. Presented naively, a five-opportunity brief could show five suites of one office tower as
+five independent projects.
+
+The approach is deliberately conservative:
+
+- A `building_key` groups projects sharing a normalised base address, with suite designators
+  removed.
+- Projects are **never merged**. Each keeps its own permits, evidence and classification.
+- The relationship is reported as *uncertain*, because a shared street number does not prove
+  a shared building.
+- Selection prefers at most one project per building key. Siblings are used to fill remaining
+  slots if necessary, and the report states the relationship plainly when that happens.
+
+An address with no street number yields no key and never participates in grouping.
 
 ---
 

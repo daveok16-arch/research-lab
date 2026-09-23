@@ -301,3 +301,70 @@ def test_missing_viewstate_raises(monkeypatch):
     monkeypatch.setattr(connector.session, "get", lambda *a, **k: FakeResponse())
     with pytest.raises(ConnectorError):
         connector._fresh_form()
+
+
+#: A results grid where rows carry a capID detail anchor, mirroring the live portal. The
+#: anchor is the only place the capID appears, so it is what makes a record citable.
+RESULTS_GRID_WITH_LINKS = """
+<table id="ctl00_PlaceHolderMain_dgvPermitList_gdvPermitList">
+<span>25 Record results matching</span>
+<tr class="ACA_TabRow_Header"><th>Date</th><th>Record Number</th><th>Record Type</th>
+<th>Address</th></tr>
+<tr class="ACA_TabRow_Odd"><td><a id="ctl00_PlaceHolderMain_dgvPermitList_gdvPermitList_ctl02_hlPermitNumber"
+ href="/DALLASTX/Cap/CapDetail.aspx?Module=Building&amp;capID1=REC26&amp;capID2=00000&amp;capID3=029CL">COM-MEC-26-002460</a></td>
+<td>09/21/2026</td><td>COM-MEC-26-002460</td><td>Commercial Mechanical Permit</td>
+<td>1807 ROSS AVE, Dallas TX 75201</td><td>install piping</td></tr>
+<tr class="ACA_TabRow_Even"><td><a id="ctl00_PlaceHolderMain_dgvPermitList_gdvPermitList_ctl03_hlPermitNumber"
+ href="/DALLASTX/Cap/CapDetail.aspx?Module=Building&amp;capID1=REC26&amp;capID2=00000&amp;capID3=029KE">26TMP-155017</a></td>
+<td>09/20/2026</td><td>26TMP-155017</td><td>Commercial Mechanical Permit</td>
+<td>200 MAIN ST, Dallas TX 75202</td><td></td></tr>
+<tr class="ACA_TabRow_Odd"><td></td><td>09/19/2026</td><td>COM-MEC-26-009999</td>
+<td>Commercial Mechanical Permit</td>
+<td>1 NO LINK ST, Dallas TX 75203</td><td>no anchor</td></tr>
+</table>
+"""
+
+
+def test_parse_results_captures_the_detail_link():
+    """The capID only appears in the row anchor, so it must be captured while parsing.
+
+    Without it a Dallas record cannot be cited with a URL a customer can open, and the report
+    falls back to telling them to go and search for the record number.
+    """
+    rows = parse_results(RESULTS_GRID_WITH_LINKS)
+    with_link = [r for r in rows if r["detail_path"]]
+    assert with_link, "no detail path captured"
+    assert with_link[0]["detail_path"].startswith("/DALLASTX/Cap/CapDetail.aspx?")
+    assert "capID3=" in with_link[0]["detail_path"]
+
+
+def test_rows_without_a_detail_link_are_still_parsed():
+    """A row with no anchor must still yield a usable record."""
+    rows = parse_results(RESULTS_GRID_WITH_LINKS)
+    without = [r for r in rows if not r["detail_path"]]
+    assert without, "expected at least one row without a detail link"
+    assert without[0]["record_number"] == "COM-MEC-26-009999"
+
+
+def test_record_url_is_absolute_and_resolvable():
+    connector = _connector()
+    url = connector._record_url(
+        {
+            "record_number": "COM-MEC-26-002460",
+            "detail_path": "/DALLASTX/Cap/CapDetail.aspx?Module=Building&capID1=REC26",
+        }
+    )
+    assert url.startswith("https://aca-prod.accela.com/DALLASTX/Cap/CapDetail.aspx")
+    assert "capID1=REC26" in url
+
+
+def test_record_url_is_none_when_there_is_no_link():
+    connector = _connector()
+    assert connector._record_url({"record_number": "X", "detail_path": ""}) is None
+
+
+def test_html_entities_in_detail_paths_are_decoded():
+    """The portal emits &amp; inside href attributes."""
+    for row in parse_results(RESULTS_GRID_WITH_LINKS):
+        if row["detail_path"]:
+            assert "&amp;" not in row["detail_path"]

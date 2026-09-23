@@ -66,26 +66,54 @@ project is only called HIGH when a public record documents mechanical scope, the
 commercial-scale, its address is precise enough to act on, and something establishes that it
 is significant. Under-claiming keeps the list worth reading.
 
-Reports:
+## Reports
 
 ```bash
-python -m oppintel.cli report          # coverage + validation reports
-python -m oppintel.cli brief --limit 5 # customer brief + internal research report
+python -m oppintel.cli brief --limit 5 --prepared-for "Acme Mechanical"  # customer + internal
+python -m oppintel.cli report                                            # coverage, quality, validation
 ```
 
-Two report formats are generated from the same verified records:
+Both are deterministic given the same database state, so a report can be regenerated and
+will be identical.
 
-- **Customer brief** — 5 opportunities, business language, one citation per fact, no
-  database internals. Contains no opportunity described as an open bid.
-- **Internal research report** — the full audit trail: field verdicts, classification
-  arithmetic, every contributing permit, and source provenance.
+| Output | Purpose |
+|---|---|
+| `reports/out/customer_brief.md` | The product. 5 opportunities, business language, one citation per fact |
+| `reports/out/internal_report.md` | Full audit trail: field verdicts, classification reasoning, every permit, provenance |
+| `reports/out/coverage_report.md` | Per-source coverage, dates, caps, lower bounds |
+| `reports/out/data_quality_report.md` | Record and project counts, opportunity states, grouping and procurement distribution |
+| `reports/out/validation_report.md` | Per-project field validation with CONFIRMED / PARTIALLY VERIFIED / NOT VERIFIED |
 
 ### Procurement status
 
 No source in this market publishes bid status, so no opportunity is ever presented as an
-open bid. Each carries one of three values: `Confirmed open` (requires explicit bid
-evidence), `Evidence found, status unclear` (active work, procurement unknown), or
-`Not verified`. Completed and withdrawn projects are excluded from customer briefs.
+open bid. Four values:
+
+| Value | Meaning |
+|---|---|
+| `Confirmed open` | a source explicitly advertises the work for bid (`Confirmed open` is currently unreachable) |
+| `Evidence found, status unclear` | active work on record; procurement not stated |
+| `Not verified` | nothing supports a procurement claim |
+| `Closed` | finished, expired or withdrawn — excluded from customer output |
+
+Every customer brief states verbatim: *"Public permit evidence does not by itself confirm
+that the HVAC/mechanical package is currently available for bid."*
+
+### Selection and eligibility
+
+An opportunity reaches a customer brief only if it is not completed, has tier-1 or tier-2
+mechanical evidence, is classified HIGH or MEDIUM, is not service/repair/maintenance work,
+and states at least one significance fact (building class, declared value or footprint).
+Confirmed open bidding is deliberately **not** required, because no source can establish it.
+
+Selection is deterministic and explainable: ordered by classification score, then label, then
+amount of usable context, then recency, then id. The reason each opportunity was included is
+stored and printed.
+
+Where several records share a base street address they are treated as **possible** suites of
+one building. They are never merged — the relationship is flagged as uncertain and selection
+prefers one project per building so a brief cannot show five suites of one tower as five
+independent opportunities.
 
 ## Sources
 
@@ -176,6 +204,40 @@ reports/out/             generated coverage and validation reports
   and reasons are persisted per project
 - Phase 3 — dashboard: designed, not yet built
 - Phase 4 — client report: designed, not yet built
+
+## Known limitations
+
+- **Partial coverage.** No single source covers DFW completely. Dallas, Fort Worth and
+  Collin County are covered; other DFW cities are not.
+- **Lower-bound counts.** Three Dallas record types stop at a 300-page pagination safety cap,
+  so their totals are lower bounds. The coverage report marks these explicitly.
+- **Dallas publishes no value or floor area**, which limits how many Dallas projects can
+  establish significance.
+- **No bid status.** No configured source publishes it, so confirmation that a package is
+  open must come from the owner or GC directly.
+- **Architect and developer are unpublished** by every free source in this market and remain
+  Not verified on effectively every record.
+- **Suite-level records.** Many Dallas suites share one building. They are grouped and
+  flagged, never merged, so counts of projects exceed counts of buildings.
+
+## Testing
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q      # 303 tests, no mocks
+```
+
+Notable suites:
+
+| File | Covers |
+|---|---|
+| `test_dallas_accela.py` | Request construction, same-session viewstate, retries, URL capture |
+| `test_dallas_pagination.py` | Windowed pager, Next-anchor behaviour, safety cap |
+| `test_dallas_probe_matrix.py` | The required classification matrix (mechanical vs plumbing etc.) |
+| `test_grouping.py` | Suite-level grouping, no merging, uncertain relationships |
+| `test_eligibility.py` | Customer-brief eligibility criteria |
+| `test_brief_sanity.py` | The report sanity checks as automated assertions |
+| `test_procurement.py` | Procurement vocabulary, closed vs unknown |
+| `test_provenance.py` | The never-invent rule and per-field evidence |
 
 ## Compliance
 

@@ -26,8 +26,15 @@ from .models import Project
 CONFIRMED_OPEN = "Confirmed open"
 EVIDENCE_FOUND = "Evidence found, status unclear"
 NOT_VERIFIED = "Not verified"
+CLOSED = "Closed"
 
-PROCUREMENT_STATES = (CONFIRMED_OPEN, EVIDENCE_FOUND, NOT_VERIFIED)
+PROCUREMENT_STATES = (CONFIRMED_OPEN, EVIDENCE_FOUND, NOT_VERIFIED, CLOSED)
+
+#: States in which a project cannot be offered as a live opportunity, because there is
+#: nothing left to procure. Distinguished from NOT_VERIFIED, which means "we do not know":
+#: a closed project is a *known* non-opportunity, and a report that presents the two
+#: identically loses information a reader needs.
+UNAVAILABLE_STATES = (CLOSED,)
 
 #: Phrases a source would have to contain to justify a confirmed-open claim. None of the
 #: currently configured sources publish these fields, so this list is intentionally thin and
@@ -119,11 +126,15 @@ def procurement_status(project: Project, *, raw_text: str | None = None) -> str:
     """Determine the procurement status a project's evidence actually supports.
 
     `raw_text` is the concatenated source text for the project, used only to look for an
-    explicit bid advertisement. Absent that, the permit status decides between "evidence
-    found" and "not verified".
+    explicit bid advertisement. Absent that, the permit status decides between
+    "evidence found", "closed", and "not verified".
 
     Completion is tested before activity, because a status can contain both: "Final CO
     Issued" carries the active word "issued" but means the building is finished.
+
+    A *known* closure returns CLOSED rather than NOT_VERIFIED. The distinction matters to a
+    reader: "this work is finished" and "we cannot tell whether this is live" call for
+    different actions, and collapsing them would hide a fact the sources did establish.
     """
     haystack_parts = [
         raw_text or "",
@@ -143,7 +154,7 @@ def procurement_status(project: Project, *, raw_text: str | None = None) -> str:
     # Completion wins over activity, and word boundaries stop "incomplete" reading as
     # "complete".
     if any(_contains_phrase(status, phrase) for phrase in CLOSED_PROCUREMENT_STATUS_PHRASES):
-        return NOT_VERIFIED
+        return CLOSED
     if any(_contains_phrase(status, phrase) for phrase in ACTIVE_PROCUREMENT_STATUS_PHRASES):
         return EVIDENCE_FOUND
     return NOT_VERIFIED
@@ -163,6 +174,13 @@ def procurement_explanation(status: str, project: Project) -> str:
             "proceeding. No source states how the work will be procured, so this is not a "
             "confirmed open bid."
         )
+    if status == CLOSED:
+        shown = project.project_status or "a closed status"
+        return (
+            f"The permit record shows this work as finished or inactive ({shown}). The "
+            "mechanical scope on record has therefore already been let or completed, and "
+            "this should not be treated as a live opportunity."
+        )
     return (
         "No source states a procurement status, and the recorded status does not indicate "
         "active work. Treat procurement as unverified. A permit existing does not mean the "
@@ -177,4 +195,4 @@ def is_claimable(project: Project) -> bool:
     mechanical evidence was. Keeping it off the customer report is the difference between a
     list a contractor trusts and one they stop reading.
     """
-    return procurement_status(project) != NOT_VERIFIED
+    return procurement_status(project) not in UNAVAILABLE_STATES + (NOT_VERIFIED,)

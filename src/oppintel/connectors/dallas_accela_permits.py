@@ -23,6 +23,7 @@ evidence directly from the City.
 
 from __future__ import annotations
 
+import html as html_module
 import logging
 import re
 import time
@@ -141,8 +142,15 @@ def parse_results(html: str) -> list[dict[str, str]]:
 
     Rows are matched on a leading `MM/DD/YYYY` date cell, which is what distinguishes a data
     row from the header, filter, and pager rows that share the same CSS class.
+
+    The row's detail anchor is captured too, because the portal addresses records by a
+    three-part ``capID`` rather than by record number, and that id appears only in the link.
+    Without it a Dallas record cannot be cited with a resolvable URL.
     """
     rows: list[dict[str, str]] = []
+
+    # A data row starts with the date cell. Split on the row marker and keep each block intact
+    # so the detail anchor can be read from the same block it belongs to.
     for block in re.split(r"<tr[^>]*class=\"ACA_TabRow", html)[1:]:
         cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", block, re.S)
         values = [
@@ -150,10 +158,18 @@ def parse_results(html: str) -> list[dict[str, str]]:
         ]
         if len(values) < 5 or not re.match(r"^\d{2}/\d{2}/\d{4}$", values[1] or ""):
             continue
+
+        record_number = values[2]
+        # The portal emits one detail anchor per data row inside the same row block. A row
+        # for a temporary permit has none, which is why the field is optional.
+        detail_path = ""
+        hrefs = re.findall(r'href="(/DALLASTX/Cap/CapDetail\.aspx\?[^"]+)"', block)
+        if hrefs:
+            detail_path = html_module.unescape(hrefs[0])
         rows.append(
             {
                 "record_date": values[1],
-                "record_number": values[2],
+                "record_number": record_number,
                 "record_type": values[3],
                 "address": values[4],
                 "description": values[5] if len(values) > 5 else "",
@@ -161,6 +177,7 @@ def parse_results(html: str) -> list[dict[str, str]]:
                 "expiration_date": values[7] if len(values) > 7 else "",
                 "status": values[8] if len(values) > 8 else "",
                 "short_notes": values[10] if len(values) > 10 else "",
+                "detail_path": detail_path,
             }
         )
     return rows
@@ -426,12 +443,16 @@ class DallasAccelaConnector(BaseConnector):
         return self._post(build_form(html), targets[-1])
 
     def _record_url(self, row: dict[str, Any]) -> str | None:
-        """Build a stable public URL for a record.
+        """Build a resolvable public URL for a record.
 
         The portal addresses records by a three-part ``capID`` rather than by record number,
-        and that id is only exposed on the detail links. Where the template is unavailable
-        the record is still traceable by number through the search interface.
+        and that id appears only in the grid's detail link. Capturing it during parsing is
+        what lets a Dallas record be cited with a URL a customer can actually open, instead of
+        an instruction to go searching.
         """
+        path = row.get("detail_path")
+        if path:
+            return f"https://aca-prod.accela.com{path}"
         if self.config.source_url_template:
             return self.config.source_url_template.format(
                 record_number=row.get("record_number", "")
