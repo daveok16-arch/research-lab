@@ -22,13 +22,46 @@
     {% endfor %}
   {% endfor %}
 
-  <div class="notice notice-plain">
+  <div class="notice notice-action">
     <h4>See the data for yourself</h4>
-    <p class="small">
-      Every claim in this guide is checkable against the directory.
-      <a href="{{ url_for('opportunities') }}">Browse current opportunities</a> and open any
-      record to see its sources.
+    <p>
+      Every claim in this guide is checkable against the directory. Browse the current
+      {{ trade.short_label }} opportunities across {{ market.short_name }}, or open any record to
+      see the sources behind its fields.
+    </p>
+    <p>
+      <a class="btn btn-primary" href="{{ url_for('opportunities') }}">
+        Explore {{ market.short_name }} {{ trade.short_label }} Opportunities
+      </a>
+      <a class="btn btn-outline" href="{{ url_for('core_category') }}">
+        What commercial construction leads are
+      </a>
+      <a class="btn btn-outline" href="{{ url_for('signup') }}">Create Free Account</a>
     </p>
   </div>
+
+  <h2>Related</h2>
+  <ul class="related-list">
+    <li>
+      <a href="{{ url_for('core_category') }}">Commercial construction leads and project intelligence</a>
+      <span class="muted small">What the platform is and what it refuses to claim.</span>
+    </li>
+    <li>
+      <a href="{{ url_for('market_landing', market_slug=market.slug) }}">
+        {{ market.name }} construction opportunities
+      </a>
+      <span class="muted small">Current activity in the market.</span>
+    </li>
+    <li>
+      <a href="{{ url_for('trade_landing', trade_slug=(trade.slug or trade.id)) }}">
+        Commercial {{ trade.label }} opportunities
+      </a>
+      <span class="muted small">Projects with documented {{ trade.short_label }} evidence.</span>
+    </li>
+    <li>
+      <a href="{{ url_for('guides_index') }}">All guides</a>
+      <span class="muted small">How to read permit data and evaluate a project.</span>
+    </li>
+  </ul>
 </article>
 {% endblock %}

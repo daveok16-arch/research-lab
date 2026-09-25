@@ -95,4 +95,33 @@
   </div>
 </section>
 
+{# Intentional internal links: market -> trade, project type, guides, and the category page.
+   Each is a real destination a reader would want next, not a link added for its own sake. #}
+<section class="section">
+  <div class="section-head">
+    <h2>Explore further</h2>
+  </div>
+  <ul class="related-list">
+    {% for t in all_trades if t.active and t.id in mkt.trades %}
+    <li>
+      <a href="{{ url_for('market_child', market_slug=mkt.slug, slug=(t.slug or t.id)) }}">
+        Commercial {{ t.label }} opportunities in {{ mkt.short_name }}
+      </a>
+    </li>
+    {% endfor %}
+    <li>
+      <a href="{{ url_for('project_types_index') }}">Browse by commercial project type</a>
+    </li>
+    <li>
+      <a href="{{ url_for('core_category') }}">What commercial construction leads are</a>
+    </li>
+    <li>
+      <a href="{{ url_for('reports_index') }}">{{ mkt.short_name }} market reports</a>
+    </li>
+    <li>
+      <a href="{{ url_for('guides_index') }}">Guides on reading permit data</a>
+    </li>
+  </ul>
+</section>
+
 {% endblock %}

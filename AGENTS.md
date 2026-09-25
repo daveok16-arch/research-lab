@@ -32,6 +32,7 @@ flask --app oppintel.app.wsgi monitor         # raise alerts from detected chang
 python -m oppintel.cli stats
 python -m oppintel.cli projects [--classification HIGH]
 flask --app oppintel.app.wsgi report-quality
+flask --app oppintel.app.wsgi seo-report            # SEO audit; --json for machine output
 
 # Operations
 flask --app oppintel.app.wsgi grant-admin EMAIL
@@ -74,6 +75,12 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * `app/alerts.py` — event-driven, in-app. Email is modelled (`email_sent_at`) but not sent.
 * `app/entitlements.py` — plan / subscription / entitlement. No payment code.
 * `app/security.py` — CSRF, rate limiting, headers. Installed in `create_app`.
+* `app/seo_gate.py` — programmatic-page quality gate. Thresholds live in `config/keywords.yaml`,
+  not in code. The sitemap re-evaluates the same gate so the two signals agree.
+* `app/seo_report.py` — the SEO audit. Computed from the map and the database; reports no ranking.
+* `app/analytics_funnel.py` — landing events. Records a page *kind*, never a URL or identity.
+* `config/keywords.yaml` — keyword-to-page map. One primary keyword per page (asserted by test).
+  Curated `landing_pages` cities are indexable; city x trade combinations are gated.
 * Schema lives in two strings in `db.py`: `SCHEMA` (intelligence) and `APP_SCHEMA`
   (application). `alert_event` is created by `_ensure_alert_event` so a legacy table can be
   rebuilt first. Column additions go through `_migrate_app_tables`.

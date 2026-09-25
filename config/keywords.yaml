@@ -1,0 +1,274 @@
+# Keyword intelligence map.
+#
+# Every keyword the product targets, the search intent behind it, and the single canonical
+# page that answers it. This is configuration, not application code: the SEO engine reads it
+# and never hardcodes a market, a trade or a phrase.
+#
+# Two rules this file exists to enforce, both asserted by tests:
+#
+#   1. **One primary destination per keyword.** Two pages competing for the same primary
+#      keyword dilute each other, so `test_seo_keywords.py` fails if a primary keyword is
+#      claimed twice.
+#   2. **A keyword is only targeted where the data can satisfy the intent.** A keyword whose
+#      page cannot clear the quality gate is recorded as `role: deferred` with the reason,
+#      rather than being pointed at a thin page.
+#
+# Placeholders are resolved from the active market and trade configuration:
+#   {market}       short market name, e.g. DFW
+#   {market_name}  full market name, e.g. Dallas–Fort Worth
+#   {trade}        trade short label, e.g. HVAC
+#   {city}         city name, per page
+# The engine never hardcodes these values.
+
+version: 1
+
+# Search intents, used to sanity-check that a keyword and its page type agree.
+intents:
+  category: "Someone naming the product category, evaluating options."
+  commercial: "A contractor looking for work to pursue. The core commercial intent."
+  geographic: "A contractor looking for work in a named place."
+  trade: "A contractor looking for work in a named trade."
+  informational: "Someone learning how the problem is solved, not yet buying."
+  navigational: "Someone looking for this specific platform."
+
+# Page definitions. `path` is the canonical URL. `page_type` must match the intent family.
+pages:
+  - id: core_category
+    path: /commercial-construction-leads
+    page_type: category
+    intent: category
+    title: "Commercial Construction Leads and Project Intelligence"
+    primary_keyword: commercial construction leads
+    keywords:
+      - {phrase: "commercial construction leads", intent: commercial, role: primary}
+      - {phrase: "construction project leads", intent: commercial, role: secondary}
+      - {phrase: "commercial construction projects", intent: commercial, role: secondary}
+      - {phrase: "construction project intelligence", intent: category, role: secondary}
+      - {phrase: "construction leads", intent: commercial, role: secondary}
+      - {phrase: "preconstruction intelligence", intent: category, role: secondary}
+      - {phrase: "commercial construction lead generation", intent: commercial, role: secondary}
+    supporting:
+      - /opportunities
+      - /markets/{market}
+      - /trades/{trade}
+      - /guides/how-contractors-find-construction-opportunities
+
+  - id: project_database
+    path: /opportunities
+    page_type: directory
+    intent: commercial
+    title: "Opportunity Directory"
+    primary_keyword: construction project database
+    keywords:
+      - {phrase: "construction project database", intent: commercial, role: primary}
+      - {phrase: "construction project data", intent: commercial, role: secondary}
+      - {phrase: "commercial construction project search", intent: commercial, role: secondary}
+      - {phrase: "commercial construction opportunities", intent: commercial, role: secondary}
+    supporting:
+      - /commercial-construction-leads
+      - /markets/{market}
+      - /project-types
+
+  - id: bid_opportunities
+    path: /commercial-construction-leads
+    page_type: category
+    intent: commercial
+    title: "Construction Bid Opportunities"
+    # Folded into the core category page, because the product cannot evidence bid status and
+    # a separate page promising bids would overclaim. Recorded here so the intent is covered
+    # by an honest explanation rather than by a page that cannot deliver it.
+    primary_keyword: construction bid opportunities
+    keywords:
+      - {phrase: "construction bid opportunities", intent: commercial, role: deferred,
+         reason: "No source in this market publishes bid status, so a page promising bids could not be evidenced."}
+      - {phrase: "commercial construction bids", intent: commercial, role: deferred,
+         reason: "Bid status is not published by any configured source."}
+      - {phrase: "commercial construction projects for bid", intent: commercial, role: deferred,
+         reason: "Bid status is not published by any configured source."}
+      - {phrase: "subcontractor construction leads", intent: commercial, role: secondary}
+    explained_on: /commercial-construction-leads
+
+  - id: trade_landing
+    path: /trades/{trade_slug}
+    page_type: trade
+    intent: trade
+    title: "Commercial {trade} Construction Opportunities"
+    primary_keyword: "commercial {trade} leads"
+    keywords:
+      - {phrase: "commercial {trade} leads", intent: trade, role: primary}
+      - {phrase: "commercial {trade} construction leads", intent: trade, role: secondary}
+      - {phrase: "commercial {trade} opportunities", intent: trade, role: secondary}
+      - {phrase: "{trade} construction leads", intent: trade, role: secondary}
+      - {phrase: "{trade} project leads", intent: trade, role: secondary}
+      - {phrase: "commercial {trade} construction projects", intent: trade, role: secondary}
+      - {phrase: "{trade} construction projects", intent: trade, role: secondary}
+    supporting:
+      - /commercial-construction-leads
+      - /markets/{market}/{trade_slug}
+      - /opportunities
+      - /guides/how-contractors-find-construction-opportunities
+
+  - id: market_trade
+    path: /markets/{market}/{trade_slug}
+    page_type: market_trade
+    intent: geographic
+    title: "{market} Commercial {trade} Construction Opportunities"
+    primary_keyword: "{market} commercial {trade} opportunities"
+    keywords:
+      - {phrase: "{market} commercial {trade} opportunities", intent: geographic, role: primary}
+      - {phrase: "{market} commercial {trade} construction opportunities", intent: geographic, role: secondary}
+      - {phrase: "{market} {trade} construction projects", intent: geographic, role: secondary}
+    supporting:
+      - /markets/{market}
+      - /trades/{trade_slug}
+      - /commercial-construction-leads
+    quality_gate:
+      # A market-wide trade page needs enough mechanical evidence to be worth indexing.
+      min_projects: 5
+      min_mechanical: 3
+
+  - id: market_landing
+    path: /markets/{market}
+    page_type: market
+    intent: geographic
+    title: "{market_name} Commercial Construction Opportunities"
+    primary_keyword: "{market} construction projects"
+    keywords:
+      - {phrase: "{market} construction projects", intent: geographic, role: primary}
+      - {phrase: "{market} commercial construction projects", intent: geographic, role: secondary}
+      - {phrase: "{market} construction leads", intent: geographic, role: secondary}
+      - {phrase: "{market} commercial construction leads", intent: geographic, role: secondary}
+      - {phrase: "{market} construction opportunities", intent: geographic, role: secondary}
+    supporting:
+      - /commercial-construction-leads
+      - /opportunities
+      - /project-types
+    quality_gate:
+      min_projects: 5
+
+  - id: city_landing
+    path: /markets/{market}/{city_slug}
+    page_type: city
+    intent: geographic
+    title: "{city} Commercial Construction Opportunities"
+    primary_keyword: "{city} construction projects"
+    keywords:
+      - {phrase: "{city} construction projects", intent: geographic, role: primary}
+      - {phrase: "{city} commercial construction projects", intent: geographic, role: secondary}
+      - {phrase: "{city} construction leads", intent: geographic, role: secondary}
+      - {phrase: "{city} commercial construction leads", intent: geographic, role: secondary}
+    supporting:
+      - /markets/{market}
+      - /opportunities
+    quality_gate:
+      # A city page exists only when the city holds real activity. Below this it is thin.
+      min_projects: 5
+
+  - id: city_trade
+    path: /markets/{market}/{city_slug}/{trade_slug}
+    page_type: city_trade
+    intent: geographic
+    title: "{city} Commercial {trade} Construction Opportunities"
+    primary_keyword: "{city} commercial {trade} leads"
+    keywords:
+      - {phrase: "{city} commercial {trade} leads", intent: geographic, role: primary}
+      - {phrase: "{city} {trade} construction projects", intent: geographic, role: secondary}
+      - {phrase: "{city} commercial {trade} opportunities", intent: geographic, role: secondary}
+    supporting:
+      - /markets/{market}/{city_slug}
+      - /trades/{trade_slug}
+    quality_gate:
+      # The tightest gate in the map: a city filtered to one trade is the easiest page to make
+      # thin, so it needs both real mechanical evidence and enough projects behind it.
+      min_projects: 5
+      min_mechanical: 3
+
+  - id: project_types
+    path: /project-types
+    page_type: hub
+    intent: category
+    title: "{market} Commercial Project Types"
+    primary_keyword: commercial construction project types
+    keywords:
+      - {phrase: "commercial construction project types", intent: category, role: primary}
+    supporting:
+      - /opportunities
+      - /commercial-construction-leads
+
+  - id: guides_hub
+    path: /guides
+    page_type: hub
+    intent: informational
+    title: "Guides"
+    primary_keyword: how to find construction leads
+    keywords:
+      - {phrase: "how to find construction leads", intent: informational, role: primary}
+      - {phrase: "how to find commercial construction leads", intent: informational, role: secondary}
+      - {phrase: "how to find construction projects to bid on", intent: informational, role: secondary}
+    supporting:
+      - /commercial-construction-leads
+      - /opportunities
+
+  - id: reports_hub
+    path: /reports
+    page_type: hub
+    intent: informational
+    title: "Reports"
+    primary_keyword: construction market intelligence
+    keywords:
+      - {phrase: "construction market intelligence", intent: informational, role: primary}
+      - {phrase: "{market} construction market report", intent: informational, role: secondary}
+
+  - id: how_it_works
+    path: /how-it-works
+    page_type: hub
+    intent: informational
+    title: "How It Works"
+    primary_keyword: construction project intelligence
+    keywords:
+      - {phrase: "how to track construction projects", intent: informational, role: secondary}
+      - {phrase: "how to monitor construction project opportunities", intent: informational, role: secondary}
+    supporting:
+      - /commercial-construction-leads
+      - /guides
+
+# Informational keyword clusters, mapped to the guide that answers each one. A cluster with no
+# guide is a documented content opportunity rather than a page invented to hold the keyword.
+guide_topics:
+  - slug: how-contractors-find-construction-opportunities
+    primary_keyword: how HVAC contractors find construction projects
+    keywords:
+      - "how HVAC contractors find construction projects"
+      - "how to find commercial HVAC projects"
+      - "how to find commercial construction opportunities"
+    status: published
+
+  - slug: how-to-evaluate-a-construction-project
+    primary_keyword: how to evaluate a construction project
+    keywords:
+      - "how to evaluate a construction project"
+      - "what HVAC contractors should check before pursuing a construction project"
+    status: published
+
+  - slug: reading-permit-evidence
+    primary_keyword: how to read construction permit data
+    keywords:
+      - "how construction permit data reveals project activity"
+      - "what is construction project intelligence"
+    status: published
+
+  - slug: how-to-track-construction-projects
+    primary_keyword: how to track commercial construction projects
+    keywords:
+      - "how to track commercial construction projects"
+      - "how to monitor construction opportunities over time"
+      - "construction project watch list"
+    status: published
+
+  - slug: commercial-construction-leads-explained
+    primary_keyword: how construction project leads work
+    keywords:
+      - "how construction project leads work"
+      - "how to find commercial construction leads"
+      - "how contractors find new commercial construction projects"
+    status: published

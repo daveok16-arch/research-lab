@@ -170,6 +170,121 @@ GUIDES: list[dict[str, Any]] = [
             ),
         ],
     },
+    {
+        "slug": "how-to-track-construction-projects",
+        "title": "How to track and monitor commercial construction projects",
+        "summary": (
+            "Why one-off searching loses opportunities, what a watch list is actually for, and "
+            "how change detection turns a static list into a pipeline."
+        ),
+        "updated": "September 2026",
+        "sections": [
+            (
+                "The problem with searching once",
+                [
+                    "Most contractors find a project the same way: they search a permit portal "
+                    "when they have a slow week, write down what looks interesting, and then "
+                    "nothing happens to that list.",
+                    "The cost is not the searching. It is that a project's record changes — a "
+                    "new permit is filed, a status moves to issued, mechanical scope appears — "
+                    "and nobody notices, because nobody is looking at that address again.",
+                ],
+            ),
+            (
+                "What a watch list is for",
+                [
+                    "A watch list is a standing instruction to re-check a set of projects. It "
+                    "is not the same as a bookmark. A bookmark answers 'what did I find "
+                    "interesting'. A watch answers 'tell me when this changes'.",
+                    "That distinction is why the two are separate actions in this product. "
+                    "Marking something saved should never quietly enrol you in notifications "
+                    "you did not ask for.",
+                ],
+            ),
+            (
+                "What counts as a meaningful change",
+                [
+                    "Not every difference deserves an alert. A record being re-fetched with "
+                    "identical content is not news. A new permit number at the same address, a "
+                    "status moving from issued to final, mechanical evidence appearing where "
+                    "there was none, or a declared value changing — those are.",
+                    "The product records each detected difference with its previous value, its "
+                    "current value and the source, so an alert can be checked rather than "
+                    "trusted. Routine corrections appear on the project timeline without "
+                    "raising an alert.",
+                ],
+            ),
+            (
+                "From watch list to pipeline",
+                [
+                    "A watched project that turns out to be worth pursuing should leave the "
+                    "watch list and enter your own working process: reviewing, targeting, "
+                    "contacted, pursuing, closed out.",
+                    "Those stages are your filing decisions. They are deliberately not the "
+                    "project's procurement status, which the sources do not publish and this "
+                    "product therefore never asserts.",
+                ],
+            ),
+        ],
+    },
+    {
+        "slug": "commercial-construction-leads-explained",
+        "title": "How construction project leads work",
+        "summary": (
+            "What a construction lead actually is, why lead lists vary so much in quality, and "
+            "what to check before you trust one."
+        ),
+        "updated": "September 2026",
+        "sections": [
+            (
+                "A lead is a project worth investigating",
+                [
+                    "Strip away the marketing and a construction lead is a claim: there is a "
+                    "project, at this stage, in this place, and it may need your trade. Every "
+                    "lead list is an answer to some part of that claim, and the differences "
+                    "between products are mostly about which parts they can actually evidence.",
+                    "A list built on permit records can evidence that a project exists and is "
+                    "moving. A list built on planning documents can evidence that it is "
+                    "designed. Neither can evidence that the mechanical package is still "
+                    "available, unless a source publishes bid status, which in most markets "
+                    "none does.",
+                ],
+            ),
+            (
+                "Why lead quality varies so much",
+                [
+                    "The usual failure is completeness without provenance. A record is "
+                    "assembled, a plausible value is filled in for every empty field, and the "
+                    "result reads as authoritative while resting on nothing.",
+                    "The second failure is volume. A list that includes every building permit "
+                    "in a market is not a lead list for a trade — it is a permit directory, and "
+                    "an estimator pays for the sorting.",
+                ],
+            ),
+            (
+                "What to check before trusting a lead list",
+                [
+                    "Ask three questions. Can I open the source this came from? Is a missing "
+                    "value shown as missing, or quietly filled in? Does the list state bid "
+                    "status only where a source actually published it?",
+                    "Those three answers separate a tool that saves an estimator time from one "
+                    "that costs an afternoon per bad record.",
+                ],
+            ),
+            (
+                "Where public records fit",
+                [
+                    "Public construction records are the earliest reliable signal in most "
+                    "markets, because a permit is filed before the work starts. Their weakness "
+                    "is that they are published per city, in different formats, with different "
+                    "field sets.",
+                    "Turning them into usable leads is mostly an evidence problem: normalise "
+                    "the records, keep the source attached to every field, cluster them into "
+                    "projects, and leave anything unsupported empty.",
+                ],
+            ),
+        ],
+    },
 ]
 
 GUIDE_SLUGS = tuple(guide["slug"] for guide in GUIDES)

@@ -22,6 +22,7 @@ so the product states the procurement status it can actually evidence and no mor
 - [Local development](#local-development)
 - [Running the application](#running-the-application)
 - [Ingestion and report generation](#ingestion-and-report-generation)
+- [Search visibility (SEO)](#search-visibility-seo)
 - [The JSON API](#the-json-api)
 - [Environment variables](#environment-variables)
 - [Plans and entitlement](#plans-and-entitlement)
@@ -345,6 +346,83 @@ output.
 
 ---
 
+## Search visibility (SEO)
+
+The public site is built so a contractor searching for commercial construction leads in DFW can
+find the product, understand it, and reach the directory. The SEO layer sits on top of the
+product; it does not replace it.
+
+### Keyword map
+
+`config/keywords.yaml` maps every targeted keyword to its intent and its single canonical page.
+Two rules are enforced by `tests/test_seo_keywords.py`:
+
+* **One primary destination per keyword.** Two pages competing for one primary keyword dilute
+  each other, so a duplicate claim fails the suite.
+* **A keyword is only targeted where the data can satisfy it.** Phrases this product cannot
+  evidence — `construction bid opportunities` and similar — are recorded as `deferred` with a
+  reason rather than pointed at a page that would have to overclaim.
+
+Placeholders (`{market}`, `{trade}`, `{city}`) are resolved from the active market and trade, so
+nothing about DFW or HVAC is baked into the SEO engine.
+
+### Programmatic-SEO quality gate
+
+Programmatic pages are the fastest way to publish hundreds of near-empty URLs. Every
+market/city/trade combination is therefore gated by `app/seo_gate.py` against thresholds in the
+keyword map:
+
+* A page below `min_projects` is not offered to crawlers.
+* A trade page below `min_mechanical` is not offered either, because a trade directory with no
+  evidence of that trade is the unbacked claim the product refuses to make.
+
+A page that fails still renders, still shows real data, and states plainly that it is not being
+offered to search engines yet. It is marked `noindex` and withheld from the sitemap, so the two
+signals always agree.
+
+**Curated vs programmatic.** Pages listed under a market's `landing_pages` are a human editorial
+decision and stay indexable; the automated gate governs the combinatorial city × trade pages.
+That is why Dallas and Fort Worth city pages are indexable while a city × trade page is withheld
+until its data supports it.
+
+### Indexation rules
+
+| Page | Rule |
+|---|---|
+| Home, core category, directory, markets, trades, project types, reports, guides | index |
+| Curated market and city landing pages | index |
+| Market × trade | index (curated) |
+| City × trade | index only when it clears the quality gate, otherwise noindex |
+| Filtered or paginated directory views | noindex, canonical to the clean directory |
+| Individual opportunity pages | index; closed or unverified records are not discoverable |
+| Account area, dashboard, watching, pipeline, alerts, saved, preferences, admin | noindex and disallowed in `robots.txt` |
+| Error pages | noindex |
+
+### Analytics funnel
+
+Landing views are recorded as a page *kind* (`landing_category`, `landing_market`,
+`landing_city`, `landing_trade`, `landing_city_trade`, `landing_project_type`,
+`landing_guide`, `landing_directory`) in the existing `analytics_event` table. No URL, query
+string, IP address, user agent or account link is stored, so the table cannot become a record of
+who searched for what.
+
+The funnel stages — directory landing → opportunity viewed → account created → saved → watched →
+pipeline action — are read from existing events, so the funnel is a view of real data rather than
+a parallel pipeline.
+
+### Audit
+
+```bash
+PYTHONPATH=src flask --app oppintel.app.wsgi seo-report          # human-readable audit
+PYTHONPATH=src flask --app oppintel.app.wsgi seo-report --json   # machine-readable
+```
+
+The report lists keyword coverage, the gate decision and observed counts for every programmatic
+page, content gaps, and the funnel. It reports **no ranking position**, because ranking has not
+been measured and asserting it would be the same class of error as inventing a project value.
+
+---
+
 ## The JSON API
 
 The API is the machine-readable form of the same `OpportunityService` the pages use, so a page
@@ -517,7 +595,7 @@ idempotent because raw records are keyed by content hash.
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -q      # 595 tests
+PYTHONPATH=src python -m pytest tests/ -q      # 655 tests
 ```
 
 | Suite | Covers |
@@ -535,6 +613,7 @@ PYTHONPATH=src python -m pytest tests/ -q      # 595 tests
 | `test_security.py` | CSRF, rate limiting, headers, privilege escalation, IDOR, open redirect, operator area |
 | `test_entitlements.py` | Plan/subscription/entitlement separation, no self-service upgrade, lapsed access |
 | `test_acceptance.py` | The full lifecycle from source to report against real records |
+| `test_seo_keywords.py` | Keyword map coherence, indexation contract, quality gate, internal linking, content, analytics funnel, SEO report |
 | `test_classify.py`, `test_normalize.py`, `test_provenance.py`, … | The intelligence engine |
 
 No mocks are used. The intelligence tests run against real captured source payloads; the
@@ -622,6 +701,22 @@ classification gates stay in the intelligence layer and are unaffected.
 - Change detection compares the project's tracked fields and its permit set. A change to a
   source record that does not alter any of those — for example a corrected excerpt that leaves
   the value identical — is not surfaced as an event, because nothing a customer acts on changed.
+
+**SEO**
+
+- No ranking position is reported anywhere, because ranking has not been measured. The SEO
+  report describes coverage, indexation decisions and the funnel; it makes no visibility claim.
+- At the current data volume, programmatic city × trade pages mostly fail their quality gate and
+  are therefore noindex. That is the gate working as intended rather than a fault: Dallas holds
+  14 discoverable projects and 1 with mechanical evidence, below the configured threshold. These
+  pages become indexable automatically as ingestion adds records.
+- The product cannot target bid-intent keywords (`construction bid opportunities` and similar)
+  with a page that delivers on them, because no configured source publishes bid status. Those
+  keywords are recorded as deferred with a reason rather than pointed at a page that would have
+  to overclaim.
+- Search Console, analytics imports and rank tracking are not integrated. The funnel is measured
+  from the application's own events, so it covers on-site behaviour only, not impressions or
+  clicks in search results.
 
 ---
 

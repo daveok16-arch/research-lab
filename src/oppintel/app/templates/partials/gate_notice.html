@@ -1,0 +1,29 @@
+{# Shown on a programmatic page that has not yet cleared its quality gate.
+
+   The page is not broken and is not hidden — it renders real data and is reachable by anyone
+   who has the link. What the gate withholds is *indexing*: a near-empty market, city or trade
+   page should not be offered to a crawler as a destination, because that is how a programmatic
+   SEO layer generates hundreds of thin pages and dilutes the pages that deserve to rank.
+
+   The notice states the reason from the gate's own observed counts, so a reader is told the
+   truth rather than shown a vague "coming soon". #}
+{% if gate and not gate.indexable %}
+<div class="notice notice-plain gate-notice">
+  <h4>Limited data for this page</h4>
+  <p>
+    This page is not being offered to search engines yet because it does not yet hold enough
+    verifiable records to be useful. It currently has
+    {{ gate.observed.projects }} discoverable project{{ '' if gate.observed.projects == 1 else 's' }}
+    {%- if gate.observed.mechanical is defined %}
+    , {{ gate.observed.mechanical }} with documented {{ trade.short_label }} evidence
+    {%- endif %}.
+  </p>
+  <p class="small">
+    As more public records are collected, this page will qualify on its own. The directory and
+    the market pages are the better places to start now.
+  </p>
+  <p>
+    <a class="btn btn-outline" href="{{ url_for('opportunities') }}">Browse the full directory</a>
+  </p>
+</div>
+{% endif %}

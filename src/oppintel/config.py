@@ -298,9 +298,130 @@ def active_trades() -> list[TradeConfig]:
     return [t for t in load_trades().values() if t.active]
 
 
+# --- keyword map --------------------------------------------------------------
+
+
+@dataclass
+class KeywordEntry:
+    """One keyword: the phrase, the intent behind it and the role it plays for its page."""
+
+    phrase: str
+    intent: str
+    role: str
+    reason: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> KeywordEntry:
+        return cls(
+            phrase=str(data["phrase"]),
+            intent=str(data.get("intent") or "commercial"),
+            role=str(data.get("role") or "secondary"),
+            reason=data.get("reason"),
+        )
+
+
+@dataclass
+class KeywordPage:
+    """A page in the keyword map, with the keywords it is allowed to target."""
+
+    id: str
+    path: str
+    page_type: str
+    intent: str
+    title: str
+    primary_keyword: str
+    keywords: list[KeywordEntry] = field(default_factory=list)
+    supporting: list[str] = field(default_factory=list)
+    quality_gate: dict[str, int] = field(default_factory=dict)
+    explained_on: str | None = None
+
+    @property
+    def primary_entries(self) -> list[KeywordEntry]:
+        return [k for k in self.keywords if k.role == "primary"]
+
+    @property
+    def deferred(self) -> list[KeywordEntry]:
+        return [k for k in self.keywords if k.role == "deferred"]
+
+    def all_phrases(self) -> list[str]:
+        return [k.phrase for k in self.keywords]
+
+
+@dataclass
+class KeywordMap:
+    """The whole keyword-to-page map, loaded from configuration."""
+
+    version: int
+    intents: dict[str, str] = field(default_factory=dict)
+    pages: list[KeywordPage] = field(default_factory=list)
+    guide_topics: list[dict[str, Any]] = field(default_factory=list)
+
+    def page(self, page_id: str) -> KeywordPage | None:
+        return next((p for p in self.pages if p.id == page_id), None)
+
+    def primary_claims(self) -> dict[str, str]:
+        """Primary keyword phrase to the page id that claims it.
+
+        Used to prove no two pages compete for one primary keyword. Returned as a mapping so a
+        collision is visible as a shorter dict than the number of claims.
+        """
+        claims: dict[str, str] = {}
+        for page in self.pages:
+            for entry in page.primary_entries:
+                claims.setdefault(entry.phrase, page.id)
+        return claims
+
+    def duplicate_primary_claims(self) -> list[tuple[str, list[str]]]:
+        """Primary phrases claimed by more than one page, with the claiming page ids."""
+        by_phrase: dict[str, list[str]] = {}
+        for page in self.pages:
+            for entry in page.primary_entries:
+                by_phrase.setdefault(entry.phrase, []).append(page.id)
+        return [(phrase, ids) for phrase, ids in by_phrase.items() if len(ids) > 1]
+
+    def all_keywords(self) -> list[KeywordEntry]:
+        return [k for page in self.pages for k in page.keywords]
+
+
+@lru_cache(maxsize=1)
+def load_keyword_map(path: Path | None = None) -> KeywordMap:
+    """Load the keyword-to-page map.
+
+    Loaded once and cached, like every other configuration file, so the SEO engine reads one
+    consistent map for a process rather than re-parsing YAML per request.
+    """
+    path = path or (CONFIG_DIR / "keywords.yaml")
+    raw = yaml.safe_load(path.read_text()) or {}
+    pages: list[KeywordPage] = []
+    for item in raw.get("pages") or []:
+        pages.append(
+            KeywordPage(
+                id=str(item["id"]),
+                path=str(item["path"]),
+                page_type=str(item.get("page_type") or "hub"),
+                intent=str(item.get("intent") or "informational"),
+                title=str(item.get("title") or ""),
+                primary_keyword=str(item.get("primary_keyword") or ""),
+                keywords=[
+                    KeywordEntry.from_dict(k) for k in item.get("keywords") or []
+                ],
+                supporting=list(item.get("supporting") or []),
+                quality_gate=dict(item.get("quality_gate") or {}),
+                explained_on=item.get("explained_on"),
+            )
+        )
+    return KeywordMap(
+        version=int(raw.get("version") or 1),
+        intents=dict(raw.get("intents") or {}),
+        pages=pages,
+        guide_topics=list(raw.get("guide_topics") or []),
+    )
+
+
 def reset_config_cache() -> None:
     """Clear cached configuration. Used by tests that write temporary config files."""
     load_markets.cache_clear()
     _active_market_id.cache_clear()
     load_sources.cache_clear()
     load_trades.cache_clear()
+    load_keyword_map.cache_clear()

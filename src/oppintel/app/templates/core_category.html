@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{# The primary category page. It answers the "commercial construction leads / project
+   intelligence" intent, states the product's evidence standard plainly, and hands the visitor
+   real records. It deliberately carries the strongest "what we do not claim" statement on the
+   site, because this is the page most likely to be read by someone who has been burned by a
+   lead list that promised more than it could evidence. #}
+
+{% block hero %}
+<section class="hero">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('home') }}">Home</a> · Commercial construction leads</p>
+    <h1>Commercial Construction Leads and Project Intelligence</h1>
+    <p class="lede">
+      Public construction and permit records, assembled into verified commercial project
+      intelligence for {{ market.name }}. Every fact traces to a source you can open, and
+      anything the sources do not state is shown as Not verified rather than guessed.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Explore Opportunities</a>
+      <a class="btn btn-outline" href="{{ url_for('signup') }}">Create Free Account</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span>
+    <span class="stat-label">Commercial projects</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span>
+    <span class="stat-label">With {{ trade.short_label }} evidence</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span>
+    <span class="stat-label">Mechanical permit on file</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.cities) }}</span>
+    <span class="stat-label">Cities covered</span>
+  </div>
+</div>
+
+<section class="section prose">
+  <h2>What this platform is</h2>
+  <p>
+    A commercial construction lead is a project worth investigating. Most lead lists assemble
+    one from a database entry and a contact. This platform assembles one from the public
+    records a city already publishes, keeps the evidence attached to every field, and states
+    plainly where the record is silent.
+  </p>
+  <p>
+    The result is narrower than a scraped list and considerably more useful: fewer projects,
+    each of which you can check against its source before your estimator spends an afternoon
+    on it.
+  </p>
+
+  <h2>Who it is for</h2>
+  <p>
+    Commercial {{ trade.label | lower }} contractors and the teams around them — estimators,
+    business development, and sales. The directory is scoped to the active trade's evidence, so
+    a {{ trade.short_label }} view lists projects with mechanical activity rather than every
+    building permit in the market.
+  </p>
+
+  <h2>How opportunities are discovered</h2>
+  <p>
+    Public permit records are collected from each participating city, normalised into a common
+    shape, and clustered by address into the underlying project. A mechanical permit, or
+    mechanical scope named in the work description, is what marks a project as relevant to this
+    trade.
+  </p>
+
+  <h2>How matching and evidence work</h2>
+  <p>
+    Every project is classified against documented evidence, not against opinion. Fields a
+    source does not publish stay empty and render as <strong>Not verified</strong>. When two
+    publishers disagree about a value, both are kept and the field is flagged, rather than one
+    being silently preferred.
+  </p>
+
+  <h2>Monitoring, alerts and organisation</h2>
+  <p>
+    Watching a project asks the platform to re-check it on every new collection, and to tell
+    you when the record actually changes — a new permit, a status change, new mechanical
+    evidence. Each alert names the change and the source behind it. You can save projects,
+    keep private notes and tags, and move them through your own pipeline stages.
+  </p>
+</section>
+
+{% if examples %}
+<section class="section">
+  <div class="section-head">
+    <h2>Real opportunities from the directory</h2>
+    <p class="section-sub">
+      Live records, not examples. Open any one to see its evidence and sources.
+    </p>
+  </div>
+  <div class="card-grid">
+    {% for project in examples %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+  <p class="center">
+    <a class="btn btn-primary" href="{{ url_for('opportunities') }}">
+      See all {{ stats.projects_public }} opportunities
+    </a>
+  </p>
+</section>
+{% endif %}
+
+{% if cities or types %}
+<section class="section">
+  <div class="section-head">
+    <h2>Where the work is</h2>
+    <p class="section-sub">Real counts by city and project type.</p>
+  </div>
+  <div class="chip-row">
+    {% for row in cities %}
+      <a class="chip" href="{{ url_for('opportunities', city=row.city) }}">
+        {{ row.city }} <span class="chip-count">{{ row.n }}</span>
+      </a>
+    {% endfor %}
+    {% for row in types %}
+      <a class="chip" href="{{ url_for('opportunities', project_type=row.project_type) }}">
+        {{ row.project_type }} <span class="chip-count">{{ row.n }}</span>
+      </a>
+    {% endfor %}
+  </div>
+  <p class="small muted">
+    Also browse by
+    <a href="{{ url_for('market_landing', market_slug=market.slug) }}">{{ market.short_name }} market</a>,
+    <a href="{{ url_for('trade_landing', trade_slug=(trade.slug or trade.id)) }}">{{ trade.label }}</a>,
+    or <a href="{{ url_for('project_types_index') }}">project type</a>.
+  </p>
+</section>
+{% endif %}
+
+<div class="notice notice-plain">
+  <h4>What this platform does not claim</h4>
+  <p>
+    A project appearing here is <strong>relevant</strong> to {{ trade.short_label | lower }} work
+    because a public record shows mechanical activity. It is <strong>not</strong> a confirmed
+    open bid. No source in this market publishes bid status, so the platform never states one.
+    The pipeline stages are your own filing decisions, not a statement about a project's
+    procurement.
+  </p>
+  <p class="small">
+    Coverage is not complete for every jurisdiction in the market, and some source record types
+    are capped by a pagination limit, so their totals are lower bounds.
+  </p>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Learn how the data works</h2>
+  </div>
+  <div class="guide-grid">
+    <a class="guide-card" href="{{ url_for('guide_detail', guide_slug='reading-permit-evidence') }}">
+      <h3>How to read the evidence behind a construction opportunity</h3>
+      <p>What “Not verified” means, and how to check any claim yourself.</p>
+    </a>
+    <a class="guide-card" href="{{ url_for('guide_detail', guide_slug='how-contractors-find-construction-opportunities') }}">
+      <h3>How commercial {{ trade.short_label }} contractors find construction opportunities</h3>
+      <p>Where permit data comes from, what it proves, and where it stops being useful.</p>
+    </a>
+    <a class="guide-card" href="{{ url_for('guide_detail', guide_slug='how-to-evaluate-a-construction-project') }}">
+      <h3>How to evaluate a construction project before pursuing it</h3>
+      <p>A short, repeatable check that saves an estimator an afternoon.</p>
+    </a>
+  </div>
+</section>
+{% endblock %}

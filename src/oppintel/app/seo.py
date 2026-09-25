@@ -299,6 +299,23 @@ class SeoBuilder:
         )
 
     def guide_page(self, guide: dict[str, Any]) -> Seo:
+        """Metadata and Article markup for a guide.
+
+        `Article` is genuinely applicable here: a guide is editorial prose with a title, a
+        summary and a review date, and the markup asserts only those. Author and publisher are
+        deliberately omitted rather than filled with a fabricated byline.
+        """
+        article: dict[str, Any] = {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": guide["title"],
+            "description": guide["summary"],
+            "url": self.url(f"/guides/{guide['slug']}"),
+            "inLanguage": "en-US",
+        }
+        # `dateModified` is only claimed when the guide states a review month.
+        if guide.get("updated"):
+            article["dateModified"] = guide["updated"]
         return Seo(
             title=guide["title"],
             description=guide["summary"],
@@ -311,9 +328,90 @@ class SeoBuilder:
                         ("Guides", "/guides"),
                         (guide["title"], f"/guides/{guide['slug']}"),
                     ]
-                )
+                ),
+                article,
             ],
         )
+
+    def core_category_page(self, stats: dict[str, Any], examples: list[dict[str, Any]]) -> Seo:
+        """The primary category page: commercial construction leads / project intelligence.
+
+        This is the page that answers the category intent, so it carries the site's clearest
+        statement of what the product is and what it refuses to claim. The description states
+        real counts and, where available, a real example — never a promise of bid status.
+        """
+        count = stats.get("projects_public", 0)
+        mechanical = stats.get("with_mechanical", 0)
+        label = self.trade.short_label or self.trade.label
+        description = (
+            f"Evidence-backed commercial construction leads across {self.market.name}: "
+            f"{count:,} active projects, {mechanical:,} with documented {label} evidence. "
+            f"Every fact links to its public source. No source publishes bid status, so none "
+            f"is claimed."
+        )
+        return Seo(
+            title="Commercial Construction Leads and Project Intelligence",
+            description=description,
+            canonical=self.url("/commercial-construction-leads"),
+            json_ld=[
+                self._breadcrumbs(
+                    [
+                        ("Home", "/"),
+                        ("Commercial construction leads", "/commercial-construction-leads"),
+                    ]
+                ),
+                self._dataset_json_ld(stats),
+            ],
+        )
+
+    def city_trade_page(
+        self, market: MarketConfig, city_name: str, city_slug: str,
+        trade: TradeConfig, stats: dict[str, Any],
+    ) -> Seo:
+        """A city crossed with a trade — the programmatic page most prone to being thin.
+
+        The metadata is composed from real counts. The page's indexability is decided by the
+        quality gate in the route, not here, so this builder always produces honest metadata and
+        `apply_gate` decides whether a crawler is offered it.
+        """
+        count = stats.get("projects_public", 0)
+        mechanical = stats.get("with_mechanical", 0)
+        label = trade.short_label or trade.label
+        return Seo(
+            title=f"{city_name} Commercial {label} Construction Opportunities",
+            description=(
+                f"{count:,} commercial construction project{'s' if count != 1 else ''} in "
+                f"{city_name}, {market.state} with documented {label} evidence"
+                + (f", {mechanical:,} carrying a mechanical permit." if mechanical else ".")
+            ),
+            canonical=self.url(f"/markets/{market.slug}/{city_slug}/{trade.slug or trade.id}"),
+            json_ld=[
+                self._breadcrumbs(
+                    [
+                        ("Home", "/"),
+                        ("Markets", "/markets"),
+                        (market.short_name, f"/markets/{market.slug}"),
+                        (city_name, f"/markets/{market.slug}/{city_slug}"),
+                        (
+                            label,
+                            f"/markets/{market.slug}/{city_slug}/{trade.slug or trade.id}",
+                        ),
+                    ]
+                ),
+                self._dataset_json_ld(stats),
+            ],
+        )
+
+    def apply_gate(self, seo: Seo, gate: Any) -> Seo:
+        """Mark a page noindex when it fails its programmatic-SEO quality gate.
+
+        The page still renders and is still reachable — it is honest and correct. What this
+        prevents is a crawler being offered a near-empty market/trade/location page as a
+        destination, which is the single fastest way a programmatic layer damages a site.
+        """
+        if gate is not None and not gate.indexable:
+            seo.noindex = True
+        return seo
 
     # --- structured data ------------------------------------------------------
 
@@ -411,8 +509,13 @@ class SeoBuilder:
         Built from configuration and from the canonical opportunity set only. Filtered views,
         paginated result sets, the account area and the internal operations view are all
         excluded, so the sitemap cannot advertise a page that is marked noindex.
+
+        Programmatic city x trade pages are included only when they clear the same quality gate
+        the route applies. A page withheld from crawlers must not be advertised here — the two
+        signals have to agree, or a crawler is told to index what the page says not to.
         """
         from ..db import Database
+        from .seo_gate import evaluate_gate
 
         urls: list[dict[str, Any]] = []
 
@@ -426,6 +529,7 @@ class SeoBuilder:
             )
 
         add("/", 1.0, "daily")
+        add("/commercial-construction-leads", 0.9, "weekly")
         add("/opportunities", 0.9, "daily")
         add("/markets", 0.6)
         add("/trades", 0.6)
@@ -460,6 +564,9 @@ class SeoBuilder:
         for guide in GUIDES:
             add(f"/guides/{guide['slug']}", 0.5, "monthly")
 
+        # Markets, their curated landing pages, market x trade pages and gated city x trade
+        # pages. The gate is re-evaluated here against the same thresholds the route reads.
+        keyword_map = _keyword_map()
         for market in _all_markets().values():
             if not market.active:
                 continue
@@ -467,8 +574,19 @@ class SeoBuilder:
             for page in market.landing_pages:
                 add(f"/markets/{market.slug}/{page['slug']}", 0.8, "daily")
             for trade in _all_trades().values():
-                if trade.active and trade.id in (market.trades or []):
-                    add(f"/markets/{market.slug}/{trade.slug or trade.id}", 0.9, "daily")
+                if not (trade.active and trade.id in (market.trades or [])):
+                    continue
+                trade_slug = trade.slug or trade.id
+                add(f"/markets/{market.slug}/{trade_slug}", 0.9, "daily")
+                for page in market.landing_pages:
+                    if self._city_trade_is_indexable(
+                        market, page, trade, keyword_map, evaluate_gate
+                    ):
+                        add(
+                            f"/markets/{market.slug}/{page['slug']}/{trade_slug}",
+                            0.7,
+                            "weekly",
+                        )
 
         for trade in _all_trades().values():
             if trade.active:
@@ -502,6 +620,56 @@ class SeoBuilder:
 
         return urls
 
+    def _city_trade_is_indexable(
+        self, market: MarketConfig, page: dict[str, Any], trade: TradeConfig,
+        keyword_map: Any, evaluate_gate: Any,
+    ) -> bool:
+        """Whether a city x trade page clears its gate, evaluated from the database.
+
+        The sitemap opens its own connection because it is served outside a request context,
+        where the per-request service does not exist. The query applies the same public rules
+        the service does, so the count cannot differ from the page's.
+        """
+        from ..db import Database
+
+        city_name = page.get("city")
+        if not city_name:
+            return False
+        public = (
+            "classification IN ('HIGH','MEDIUM') "
+            "AND procurement_status IN ('Confirmed open','Evidence found, status unclear')"
+        )
+        clause, values = trade.evidence_clause("")
+        evidence = (clause or "").lstrip(".")
+        db = Database(self.cfg.database_path)
+        try:
+            projects = int(
+                db.conn.execute(
+                    f"SELECT COUNT(*) FROM project WHERE {public} AND city = ?",
+                    (city_name,),
+                ).fetchone()[0] or 0
+            )
+            mechanical = 0
+            if evidence:
+                mechanical = int(
+                    db.conn.execute(
+                        f"SELECT COUNT(*) FROM project WHERE {public} AND city = ? "
+                        f"AND {evidence}",
+                        [city_name] + list(values),
+                    ).fetchone()[0] or 0
+                )
+        finally:
+            db.close()
+
+        gate_page = keyword_map.page("city_trade")
+        thresholds = gate_page.quality_gate if gate_page else {}
+        result = evaluate_gate(
+            stats={"projects_public": projects, "with_mechanical": mechanical},
+            quality_gate=thresholds,
+            page_label=f"{city_name} {trade.label}",
+        )
+        return result.indexable
+
     def sitemap(self) -> str:
         lines = [
             '<?xml version="1.0" encoding="UTF-8"?>',
@@ -523,9 +691,10 @@ class SeoBuilder:
     def robots(self) -> str:
         """robots.txt with the private areas disallowed.
 
-        The disallow list covers the account area, the saved list, the operations view and any
-        path carrying a query string, because a query string implies a filtered or paged view
-        that is already marked noindex.
+        The disallow list covers every authenticated or personal route — the account area, the
+        saved list, watching, the pipeline, alerts, preferences and the operations view — plus
+        any path carrying a query string, because a query string implies a filtered or paged
+        view that is already marked noindex.
         """
         lines = ["User-agent: *", "Allow: /"]
         for path in (
@@ -534,6 +703,12 @@ class SeoBuilder:
             "/signin",
             "/signup",
             "/signout",
+            "/dashboard",
+            "/watching",
+            "/my-pipeline",
+            "/alerts",
+            "/notes",
+            "/tags",
             "/admin",
             "/api",
         ):
@@ -551,6 +726,12 @@ def _all_markets() -> dict[str, MarketConfig]:
     from ..config import load_markets
 
     return load_markets()
+
+
+def _keyword_map():
+    from ..config import load_keyword_map
+
+    return load_keyword_map()
 
 
 def _all_trades() -> dict[str, TradeConfig]:

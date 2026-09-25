@@ -45,6 +45,17 @@ from ..service import (
 )
 from .accounts import AuthError, AccountService, record_analytics
 from .alerts import AlertService
+from .analytics_funnel import (
+    LANDING_CATEGORY,
+    LANDING_CITY,
+    LANDING_CITY_TRADE,
+    LANDING_DIRECTORY,
+    LANDING_GUIDE,
+    LANDING_MARKET,
+    LANDING_PROJECT_TYPE,
+    LANDING_TRADE,
+    record_landing,
+)
 from .config import AppConfig, load_config
 from .entitlements import SubscriptionService
 from .seo import SeoBuilder
@@ -292,6 +303,9 @@ def create_app(config: AppConfig | None = None) -> Flask:
             g.db, "search_performed",
             market_id=g.market.id, trade_id=g.trade.id,
         )
+        # The directory is the product's main organic entry point, so a view of it is recorded
+        # as a funnel landing.
+        record_landing(g.db, LANDING_DIRECTORY, market_id=g.market.id, trade_id=g.trade.id)
         # Only the first page of the unfiltered directory is canonical; a filtered or paged
         # view is a distinct result set and must not compete with it in search results.
         is_canonical = not any(
@@ -374,6 +388,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         g.market = market
         stats = g.service.market_statistics()
         result = g.service.list_opportunities(OpportunityFilters(page_size=6))
+        record_landing(g.db, LANDING_MARKET, market_id=market.id, trade_id=g.trade.id)
         return render_template(
             "markets/detail.html",
             mkt=market,
@@ -401,6 +416,51 @@ def create_app(config: AppConfig | None = None) -> Flask:
             return _market_trade_page(market_slug, slug)
         return _market_city_page(market_slug, slug)
 
+    @app.route("/markets/<market_slug>/<city_slug>/<trade_slug>")
+    def city_trade_page(market_slug: str, city_slug: str, trade_slug: str) -> str:
+        """A city crossed with a trade — the genuinely programmatic combination.
+
+        This is where combinatorial explosion lives: every configured city times every active
+        trade. It is therefore the page the quality gate governs. A combination without enough
+        real evidence still renders honestly, but is marked noindex and withheld from the
+        sitemap until the data justifies indexing it.
+        """
+        market = market_by_slug(market_slug)
+        trade = trade_by_slug(trade_slug)
+        if market is None or trade is None or not market.active or not trade.active:
+            abort(404)
+        # Only cities declared as indexable landing pages participate, so the set of
+        # combinations stays bounded by configuration rather than by whatever the database holds.
+        if city_slug not in {p["slug"] for p in market.landing_pages}:
+            abort(404)
+        city_name = market.city_name(city_slug)
+        if not city_name:
+            abort(404)
+
+        g.market_slug = market_slug
+        g.trade_slug = trade_slug
+        g.service = _service(g.db, market, trade, g.user)
+        g.market, g.trade = market, trade
+        stats = g.service.statistics_for(where="p.city = ?", params=[city_name])
+        result = g.service.list_opportunities(
+            OpportunityFilters(city=city_name, page_size=10)
+        )
+        record_landing(g.db, LANDING_CITY_TRADE, market_id=market.id, trade_id=trade.id)
+        gate = _gate_for("city_trade", stats, f"{city_name} {trade.label}")
+        seo = g.seo_builder.city_trade_page(market, city_name, city_slug, trade, stats)
+        return render_template(
+            "markets/city_trade.html",
+            mkt=market,
+            city_name=city_name,
+            city_slug=city_slug,
+            trd=trade,
+            stats=stats,
+            result=result,
+            gate=gate,
+            page_title=f"{city_name} Commercial {trade.short_label} Construction Opportunities",
+            seo=g.seo_builder.apply_gate(seo, gate),
+        )
+
     def _market_city_page(market_slug: str, city_slug: str) -> str:
         market = market_by_slug(market_slug)
         if market is None or not market.active:
@@ -419,6 +479,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         filters = OpportunityFilters(city=city_name, page_size=10)
         result = g.service.list_opportunities(filters)
         stats = g.service.statistics_for(where="p.city = ?", params=[city_name])
+        record_landing(g.db, LANDING_CITY, market_id=market.id, trade_id=g.trade.id)
         return render_template(
             "markets/city.html",
             mkt=market,
@@ -451,6 +512,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         g.trade = trade
         stats = g.service.market_statistics()
         result = g.service.list_opportunities(OpportunityFilters(page_size=6))
+        record_landing(g.db, LANDING_TRADE, market_id=g.market.id, trade_id=trade.id)
         return render_template(
             "trades/detail.html",
             trd=trade,
@@ -461,7 +523,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         )
 
     def _market_trade_page(market_slug: str, trade_slug: str) -> str:
-        """The primary programmatic SEO page: a market crossed with a trade."""
+        """The market crossed with a trade — a configured, curated page."""
         market = market_by_slug(market_slug)
         trade = trade_by_slug(trade_slug)
         if market is None or trade is None or not market.active or not trade.active:
@@ -515,6 +577,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         result = g.service.list_opportunities(
             OpportunityFilters(project_type=name, page_size=12)
         )
+        record_landing(g.db, LANDING_PROJECT_TYPE, market_id=g.market.id, trade_id=g.trade.id)
         return render_template(
             "project_types/detail.html",
             project_type=name,
@@ -523,6 +586,27 @@ def create_app(config: AppConfig | None = None) -> Flask:
             cities=g.service.cities_for_type(name),
             page_title=f"{name} Construction Opportunities in {g.market.short_name}",
             seo=g.seo_builder.project_type_page(name, stats),
+        )
+
+    @app.route("/commercial-construction-leads")
+    def core_category() -> str:
+        """The primary category page for the leads / project-intelligence intent.
+
+        Answers "what are commercial construction leads and where do I get them" with the
+        product's own evidence standard, then hands the visitor the directory. Example
+        opportunities are real records the account can open, not marketing mock-ups.
+        """
+        stats = g.service.market_statistics()
+        examples = g.service.list_opportunities(OpportunityFilters(page_size=4)).items
+        record_landing(g.db, LANDING_CATEGORY, market_id=g.market.id, trade_id=g.trade.id)
+        return render_template(
+            "core_category.html",
+            stats=stats,
+            examples=examples,
+            cities=g.service.city_statistics()[:6],
+            types=g.service.type_statistics(limit=6),
+            page_title="Commercial Construction Leads and Project Intelligence",
+            seo=g.seo_builder.core_category_page(stats, examples),
         )
 
     @app.route("/guides")
@@ -548,6 +632,7 @@ def create_app(config: AppConfig | None = None) -> Flask:
         guide = next((item for item in GUIDES if item["slug"] == guide_slug), None)
         if guide is None:
             abort(404)
+        record_landing(g.db, LANDING_GUIDE, market_id=g.market.id, trade_id=g.trade.id)
         return render_template(
             "content/detail.html",
             guide=guide,
@@ -1150,6 +1235,22 @@ def _json_or_redirect_unauth() -> Any:
     return redirect(url_for("signin", next=request.path))
 
 
+def _gate_for(page_id: str, stats: dict[str, Any], label: str) -> Any:
+    """Evaluate a page's programmatic-SEO quality gate.
+
+    Thresholds come from `config/keywords.yaml`, so tightening or loosening what deserves
+    indexing is a configuration change rather than a code change. A page id that is missing
+    from the map falls back to the module defaults rather than being treated as ungated, so an
+    unregistered page cannot accidentally become indexable.
+    """
+    from ..config import load_keyword_map
+    from .seo_gate import evaluate_gate
+
+    page = load_keyword_map().page(page_id)
+    thresholds = page.quality_gate if page else {}
+    return evaluate_gate(stats=stats, quality_gate=thresholds, page_label=label)
+
+
 def _change_counts_for(db: Database, project_ids: list[int]) -> dict[int, int]:
     """Recorded change counts for a set of projects, for the watching view.
 
@@ -1336,6 +1437,68 @@ def _register_cli(app: Flask, cfg: AppConfig) -> None:
                 print("monitoring skipped")
         finally:
             db.close()
+
+    @app.cli.command("seo-report")
+    @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable JSON.")
+    def seo_report_command(as_json: bool) -> None:
+        """Print the SEO quality audit.
+
+        Reports keyword coverage, indexation decisions and the conversion funnel from stored
+        data. It deliberately reports no ranking position: ranking has not been measured, and
+        claiming it would be the same class of error as inventing a project value.
+        """
+        import json as _json
+
+        from .seo_report import full_report
+
+        db = Database(cfg.database_path)
+        db.init_schema()
+        db.init_app_schema()
+        try:
+            report = full_report(db)
+        finally:
+            db.close()
+
+        if as_json:
+            print(_json.dumps(report, indent=2, default=str))
+            return
+
+        tech = report["technical"]
+        print("SEO QUALITY REPORT")
+        print("=" * 60)
+        print(f"Mapped pages:            {tech['pages_in_map']}")
+        print(f"Mapped keywords:         {tech['keywords_in_map']}")
+        print(f"Duplicate primary kw:    {len(tech['duplicate_primary_keywords'])}")
+        print(f"Duplicate titles:        {len(tech['duplicate_declared_titles'])}")
+        print(f"Deferred keywords:       {len(tech['deferred_keywords'])}")
+        print()
+        print("Programmatic pages")
+        print("-" * 60)
+        for row in report["programmatic_pages"]:
+            decision = "index" if row["indexable"] else "noindex"
+            print(
+                f"  [{decision:>7}] {row['page']:<52} "
+                f"projects={row['observed']['projects']} "
+                f"mechanical={row['observed']['mechanical']}"
+            )
+        print()
+        print("Content")
+        print("-" * 60)
+        print(f"  published guides:      {report['content']['published_count']}")
+        missing = report["content"]["topics_without_a_guide"]
+        print(f"  mapped, not written:   {len(missing)}")
+        for row in missing:
+            print(f"    - {row['slug']} ({row['keyword']})")
+        print()
+        print("Product")
+        print("-" * 60)
+        print(f"  indexable opportunities: {report['product']['indexable_opportunities']}")
+        print(f"  project-type pages:      {report['product']['project_type_count']}")
+        print()
+        print("Conversion funnel (all-time counts)")
+        print("-" * 60)
+        for row in report["funnel"]:
+            print(f"  {row['label']:<44} {row['count']}")
 
     @app.cli.command("report-quality")
     def quality_command() -> None:
