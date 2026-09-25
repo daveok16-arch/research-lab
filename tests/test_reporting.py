@@ -7,7 +7,7 @@ only by a historical source is not presented as confirmed.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from oppintel.db import Database
 from oppintel.models import Permit, Project, normalize_address
@@ -55,6 +55,9 @@ def _seed(tmp_path, *, source_id="fort_worth_permits", coverage="current"):
     db.upsert_permit(permit, normalize_address(permit.address))
     db.commit()
     pipeline.assemble_and_classify()
+    # The real pipeline records coverage metadata as part of a run; mirror that here so the
+    # report is exercised against a database shaped like production.
+    pipeline.record_coverage()
     return db
 
 
@@ -134,6 +137,72 @@ def test_value_without_evidence_is_treated_as_unverified(tmp_path):
     row = db.conn.execute("SELECT id FROM project").fetchone()
     verdict, _ = field_verdict(db, row["id"], "owner", "SOMEONE NOT IN EVIDENCE")
     assert verdict == NOT_VERIFIED
+    db.close()
+
+
+def test_coverage_metadata_records_dates_counts_and_retrieval(tmp_path):
+    """Requirement: earliest, latest, retrieval date, record count, pagination count."""
+    from oppintel.db import Database
+    from oppintel.models import Permit, normalize_address
+    from oppintel.pipeline import Pipeline
+
+    db = Database(tmp_path / "c.db")
+    db.init_schema()
+    pipeline = Pipeline(db)
+    pipeline._register_sources()
+
+    for day, number in ((1, "A"), (15, "B")):
+        db.upsert_permit(
+            Permit(
+                source_id="fort_worth_permits", permit_number=number, natural_key=number,
+                permit_type="Commercial Building Permit", permit_subtype="New",
+                permit_date=date(2026, 9, day), address=f"{day}00 MAIN ST", city="Fort Worth",
+                state="TX", is_commercial=True, work_description="New construction",
+                source_url="https://example.gov/x", source_date=date(2026, 9, day),
+            ),
+            normalize_address(f"{day}00 MAIN ST"),
+        )
+    db.commit()
+    pipeline.record_coverage(pagination_pages=7)
+
+    row = db.conn.execute(
+        "SELECT * FROM source_coverage WHERE source_id = 'fort_worth_permits'"
+    ).fetchone()
+    assert row["earliest_date"] == "2026-09-01"
+    assert row["latest_date"] == "2026-09-15"
+    assert row["record_count"] == 2
+    assert row["retrieval_date"]
+    assert row["pagination_pages"] == 7
+    db.close()
+
+
+def test_coverage_metadata_is_idempotent(tmp_path):
+    """Re-running coverage must update in place, not accumulate rows."""
+    db = _seed(tmp_path)
+    db.record_source_coverage(
+        "fort_worth_permits", retrieval_date=datetime.now(timezone.utc), pagination_pages=3
+    )
+    db.record_source_coverage(
+        "fort_worth_permits", retrieval_date=datetime.now(timezone.utc), pagination_pages=9
+    )
+    rows = db.conn.execute(
+        "SELECT * FROM source_coverage WHERE source_id = 'fort_worth_permits'"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["pagination_pages"] == 9
+    db.close()
+
+
+def test_coverage_metadata_derive_from_stored_permits(tmp_path):
+    """Counts come from the database, so they cannot drift from the permit table."""
+    db = _seed(tmp_path)
+    stored = db.conn.execute(
+        "SELECT COUNT(*) FROM permit WHERE source_id = 'fort_worth_permits'"
+    ).fetchone()[0]
+    row = db.conn.execute(
+        "SELECT record_count FROM source_coverage WHERE source_id = 'fort_worth_permits'"
+    ).fetchone()
+    assert row["record_count"] == stored
     db.close()
 
 

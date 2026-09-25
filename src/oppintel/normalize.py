@@ -137,8 +137,21 @@ def is_trade_service_work(permit: Permit) -> bool:
 
 
 def _scope_text(permit: Permit) -> str:
-    """The permit's own scope text, boilerplate removed, lowercased."""
-    parts = [permit.work_description, permit.land_use, permit.specific_use]
+    """The permit's own scope text, boilerplate removed, lowercased.
+
+    The permit type and subtype are included deliberately. For Dallas and Fort Worth the
+    type carries the scope: a "Commercial New Construction Permit" with an empty description
+    is unmistakably a new building, and the type is the only place that is stated. Boilerplate
+    only ever appears in the free-text description, so including the type here cannot
+    reintroduce the disclaimer problem that BOILERPLATE_PATTERNS exists to solve.
+    """
+    parts = [
+        permit.permit_type,
+        (permit.permit_subtype or "").replace("_", " "),
+        permit.work_description,
+        permit.land_use,
+        permit.specific_use,
+    ]
     cleaned = " ".join(strip_boilerplate(p) or "" for p in parts if p)
     return re.sub(r"\s+", " ", cleaned).strip().lower()
 
@@ -297,24 +310,35 @@ def derive_project_type(permits: list[Permit], trade: TradeConfig) -> tuple[str 
 def primary_permit(permits: list[Permit], trade: TradeConfig) -> Permit:
     """Pick the permit that best describes the project.
 
-    A permit describing construction work outranks a trade permit, because it carries the
-    project's value, area, and description. Ties break on newest issue date, then on
-    permit number, so the choice is deterministic across runs.
+    Order of preference:
+
+    1. A genuine building permit, which carries the project's value, area and description.
+    2. A construction permit that is not a pure trade permit.
+    3. A *mechanical* permit, when the project's evidenced trade is mechanical. Presenting a
+       plumbing permit for a project whose mechanical evidence is the reason it qualified
+       would misrepresent the record, so mechanical outranks the other trades.
+    4. Any other trade permit.
+    5. Anything unrecognised.
+
+    Ties break on newest issue date, then permit number, so the choice is deterministic.
     """
     def sort_key(permit: Permit) -> tuple:
         permit_type = (permit.permit_type or "").lower()
         is_pure_trade = any(k in permit_type for k in PURE_TRADE_TYPE_KEYWORDS)
         is_building = ("building" in permit_type or "commercial" in permit_type) and not is_pure_trade
         construction = has_construction_scope(permit, trade)
+        is_mechanical = is_mechanical_permit(permit, trade)
 
         if is_building:
             rank = 0
-        elif construction:
+        elif construction and not is_pure_trade:
             rank = 1
+        elif is_mechanical:
+            rank = 2
         elif is_pure_trade:
             rank = 3
         else:
-            rank = 2
+            rank = 4
         return (
             rank,
             -(permit.permit_date.toordinal() if permit.permit_date else 0),

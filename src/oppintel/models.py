@@ -160,6 +160,8 @@ class Project:
     mechanical_evidence_tier: int | None = None
     property_class: str | None = None
     location_precision: str | None = None
+    #: Whether the evidence supports any procurement claim. See procurement.py.
+    procurement_status: str | None = None
     classification: str | None = None
     classification_score: int | None = None
     classification_reasons: list[str] = field(default_factory=list)

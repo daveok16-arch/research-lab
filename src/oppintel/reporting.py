@@ -220,6 +220,166 @@ def discrepancy_summary_from_row(row: Any) -> str:
     return "\n".join(lines)
 
 
+def data_quality_report(db: Database) -> str:
+    """A validation summary across the whole database.
+
+    Every figure is computed from the stored tables, so the report cannot drift from the data
+    it describes. Counts that are lower bounds because of a pagination cap are labelled as
+    such rather than presented as totals.
+    """
+    out: list[str] = []
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    out.append("# Data quality report")
+    out.append("")
+    out.append(f"Generated {now}")
+    out.append("")
+
+    def scalar(sql: str, params: tuple = ()) -> int:
+        row = db.conn.execute(sql, params).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    total = scalar("SELECT COUNT(*) FROM permit")
+    commercial = scalar("SELECT COUNT(*) FROM permit WHERE is_commercial = 1")
+    mechanical = scalar(
+        "SELECT COUNT(*) FROM permit WHERE LOWER(COALESCE(permit_type,'')) LIKE '%mechanical%'"
+    )
+    projects = scalar("SELECT COUNT(*) FROM project")
+
+    out.append("## Records")
+    out.append("")
+    out.append("| Measure | Count |")
+    out.append("|---|---|")
+    out.append(f"| Permit records stored | {total:,} |")
+    out.append(f"| Commercial records | {commercial:,} |")
+    out.append(f"| Records with a mechanical permit type | {mechanical:,} |")
+    out.append(f"| Raw landed payloads | {scalar('SELECT COUNT(*) FROM raw_record'):,} |")
+    out.append(f"| Evidence rows | {scalar('SELECT COUNT(*) FROM evidence'):,} |")
+    out.append("")
+
+    out.append("## Assembled projects")
+    out.append("")
+    out.append("| Classification | Count |")
+    out.append("|---|---|")
+    for label in ("HIGH", "MEDIUM", "NEEDS_VERIFICATION"):
+        n = scalar("SELECT COUNT(*) FROM project WHERE classification = ?", (label,))
+        out.append(f"| {label} | {n:,} |")
+    out.append(f"| **Total** | **{projects:,}** |")
+    out.append("")
+
+    # EXCLUDED is not a stored classification: a project is excluded when it fails the
+    # customer-brief criteria. Reporting it here keeps the four opportunity states visible.
+    from .eligibility import evaluate
+
+    rows = db.conn.execute("SELECT * FROM project").fetchall()
+    eligible = 0
+    excluded = 0
+    for row in rows:
+        if evaluate(row).eligible:
+            eligible += 1
+        else:
+            excluded += 1
+
+    out.append("## Opportunity states")
+    out.append("")
+    out.append("| State | Count | Meaning |")
+    out.append("|---|---|---|")
+    high = scalar("SELECT COUNT(*) FROM project WHERE classification = 'HIGH'")
+    medium = scalar("SELECT COUNT(*) FROM project WHERE classification = 'MEDIUM'")
+    needs = scalar("SELECT COUNT(*) FROM project WHERE classification = 'NEEDS_VERIFICATION'")
+    out.append(f"| HIGH | {high:,} | Significant commercial project with credible mechanical evidence |")
+    out.append(f"| MEDIUM | {medium:,} | Credible mechanical evidence, significance or context insufficient for HIGH |")
+    out.append(f"| NEEDS_VERIFICATION | {needs:,} | Some relevant evidence, requirements not sufficiently verified |")
+    out.append(f"| EXCLUDED | {excluded:,} | Completed, service, non-mechanical, or otherwise unsuitable |")
+    out.append("")
+    out.append(
+        f"Customer-brief eligible: **{eligible:,}** of {projects:,} projects. "
+        "Eligibility applies the criteria in `eligibility.py`: not completed, mechanical "
+        "evidence present, HIGH or MEDIUM, not service work, and at least one significance "
+        "fact. Confirmed open bidding is deliberately not required."
+    )
+    out.append("")
+
+    completed = scalar(
+        "SELECT COUNT(*) FROM project WHERE procurement_status = 'Closed'"
+    )
+    out.append(
+        f"Completed or inactive opportunities removed from customer output: **{completed:,}**."
+    )
+    out.append("")
+
+    out.append("## Procurement status distribution")
+    out.append("")
+    out.append("| Status | Projects |")
+    out.append("|---|---|")
+    for label in ("Confirmed open", "Evidence found, status unclear", "Not verified", "Closed"):
+        n = scalar("SELECT COUNT(*) FROM project WHERE procurement_status = ?", (label,))
+        out.append(f"| {label} | {n:,} |")
+    out.append("")
+
+    out.append("## Grouping statistics")
+    out.append("")
+    from .grouping import duplicate_statistics, group_projects
+
+    groups = group_projects(
+        rows,
+        address_getter=lambda r: r["address"],
+        city_getter=lambda r: r["city"],
+        id_getter=lambda r: r["id"],
+    )
+    stats = duplicate_statistics(groups)
+    out.append("| Measure | Count |")
+    out.append("|---|---|")
+    out.append(f"| Distinct building keys | {stats['building_keys']:,} |")
+    out.append(f"| Keys holding more than one project | {stats['multi_project_keys']:,} |")
+    out.append(f"| Projects inside those keys | {stats['projects_in_multi_keys']:,} |")
+    out.append(f"| Largest single group | {stats['largest_group']:,} |")
+    out.append(
+        f"| Potential reduction if every group collapsed | {stats['potential_reduction']:,} |"
+    )
+    out.append("")
+    out.append(
+        "Projects are **never merged**. A shared base street address is a grouping hint, not "
+        "proof of a shared building, so the relationship is reported and the records stay "
+        "separate. The reduction figure is a bound, not a target."
+    )
+    out.append("")
+
+    out.append("## Source discrepancies")
+    out.append("")
+    disputed = scalar("SELECT COUNT(*) FROM project WHERE disputed_fields <> '[]'")
+    out.append(
+        f"Projects with a cross-source disagreement: **{disputed:,}** of {projects:,}."
+    )
+    out.append("")
+    out.append(
+        "A disagreement is only recorded when two **different** publishers state different "
+        "values for the same field. Several permits from one publisher describing one "
+        "building are scope, not a contradiction."
+    )
+    out.append("")
+
+    out.append("## Known limitations")
+    out.append("")
+    out.append(
+        "- Some Dallas record types are capped by a 300-page safety limit, so their record "
+        "counts are **lower bounds**, not totals."
+    )
+    out.append(
+        "- Dallas publishes no declared project value or floor area, which limits how many "
+        "Dallas projects can establish significance."
+    )
+    out.append(
+        "- No configured source publishes bid status, so `Confirmed open` is unreachable and "
+        "most opportunities read `Evidence found, status unclear`."
+    )
+    out.append(
+        "- `architect` and `developer` are not published by any free source in this market "
+        "and remain unverified on effectively every record."
+    )
+    out.append("")
+    return "\n".join(out)
+
+
 def coverage_report(db: Database) -> str:
     """Coverage table across every configured source: dates, volume, and evidence yield."""
     out: list[str] = []
@@ -229,43 +389,45 @@ def coverage_report(db: Database) -> str:
     out.append(f"Generated {now}")
     out.append("")
     out.append(
-        "| City | Source | Earliest Date | Latest Date | Records | Commercial Records "
-        "| Mechanical Evidence | Notes |"
+        "| City | Source | Earliest Date | Latest Date | Retrieval Date | Records "
+        "| Commercial Records | Mechanical Evidence | Pages | Notes |"
     )
-    out.append("|---|---|---|---|---|---|---|---|")
+    out.append("|---|---|---|---|---|---|---|---|---|---|")
 
     rows = db.conn.execute(
         """
-        SELECT s.id, s.name, s.jurisdiction_city, s.market_coverage, s.coverage_note,
-               MIN(p.permit_date) AS earliest,
-               MAX(p.permit_date) AS latest,
-               COUNT(p.id) AS records,
-               SUM(CASE WHEN p.is_commercial = 1 THEN 1 ELSE 0 END) AS commercial_records,
-               SUM(CASE WHEN LOWER(COALESCE(p.permit_type,'')) LIKE '%mechanical%'
-                        THEN 1 ELSE 0 END) AS mechanical_records
+        SELECT s.id, s.name, s.jurisdiction_city, s.market_coverage,
+               c.earliest_date, c.latest_date, c.retrieval_date, c.record_count,
+               c.commercial_count, c.mechanical_count, c.pagination_pages,
+               c.pagination_notes, s.coverage_note
           FROM source s
-          LEFT JOIN permit p ON p.source_id = s.id
-         GROUP BY s.id
-         ORDER BY records DESC
+          LEFT JOIN source_coverage c ON c.source_id = s.id
+         ORDER BY COALESCE(c.record_count, 0) DESC, s.name
         """
     ).fetchall()
 
     for r in rows:
         city = r["jurisdiction_city"] or "Multi-city"
-        earliest = r["earliest"] or "—"
-        latest = r["latest"] or "—"
-        records = r["records"] or 0
-        commercial = r["commercial_records"] or 0
-        mechanical = r["mechanical_records"] or 0
-        notes = " ".join((r["coverage_note"] or "").split()) or (
-            f"Coverage: {r['market_coverage']}"
-        )
-        if len(notes) > 240:
-            notes = notes[:237] + "..."
+        notes = " ".join((r["pagination_notes"] or r["coverage_note"] or "").split())
+        if len(notes) > 220:
+            notes = notes[:217] + "..."
+        # A record count is a lower bound whenever the crawl hit a page cap. Marking it in
+        # the table itself stops a reader treating a truncated total as complete.
+        count = r["record_count"] or 0
+        capped = "lower bound" in notes.lower() or "cap" in notes.lower()
+        count_text = f"{count:,}" + (" *(lower bound)*" if capped and count else "")
         out.append(
-            f"| {city} | {r['name']} | {earliest} | {latest} | {records} | {commercial} "
-            f"| {mechanical} | {notes} |"
+            f"| {city} | {r['name']} | {r['earliest_date'] or '—'} "
+            f"| {r['latest_date'] or '—'} | {r['retrieval_date'] or '—'} "
+            f"| {count_text} | {r['commercial_count'] or 0} "
+            f"| {r['mechanical_count'] or 0} | {r['pagination_pages'] or '—'} | {notes} |"
         )
+    out.append("")
+    out.append(
+        "**Lower bound** means the crawl stopped at a pagination safety cap, so the true "
+        "record count is at least the figure shown and may be higher. No total in this table "
+        "should be read as complete for a jurisdiction whose source is capped."
+    )
     out.append("")
 
     out.append("## Projects by city")

@@ -142,10 +142,10 @@ def cmd_projects(args: argparse.Namespace) -> int:
 
 
 def cmd_report(args: argparse.Namespace) -> int:
-    """Write the coverage report and, optionally, a validation report for HIGH projects."""
+    """Write the coverage, data quality, and validation reports."""
     from pathlib import Path
 
-    from .reporting import coverage_report, validation_report
+    from .reporting import coverage_report, data_quality_report, validation_report
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -154,6 +154,9 @@ def cmd_report(args: argparse.Namespace) -> int:
         db.init_schema()
         coverage_path = out_dir / "coverage_report.md"
         coverage_path.write_text(coverage_report(db))
+
+        quality_path = out_dir / "data_quality_report.md"
+        quality_path.write_text(data_quality_report(db))
 
         ids = [
             r["id"]
@@ -169,8 +172,60 @@ def cmd_report(args: argparse.Namespace) -> int:
         validation_path = out_dir / "validation_report.md"
         validation_path.write_text(validation_report(db, ids))
 
-    print(f"Coverage report:   {coverage_path}")
-    print(f"Validation report: {validation_path}  ({len(ids)} projects)")
+    print(f"Coverage report:      {coverage_path}")
+    print(f"Data quality report:  {quality_path}")
+    print(f"Validation report:    {validation_path}  ({len(ids)} projects)")
+    return 0
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Write the customer-facing brief and/or the internal research report."""
+    from pathlib import Path
+
+    from .report_generator import ReportBuilder
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    with Database(args.db) as db:
+        db.init_schema()
+        builder = ReportBuilder(db)
+
+        if args.project_ids:
+            ids = [int(x) for x in args.project_ids.split(",")]
+        else:
+            classifications = tuple(args.classification or ["HIGH", "MEDIUM"])
+            ids = builder.select_opportunities(
+                classifications=classifications,
+                limit=args.limit,
+                require_active=not args.include_inactive,
+                avoid_siblings=not args.allow_siblings,
+                require_eligibility=not args.no_eligibility_filter,
+            )
+
+        written: list[Path] = []
+        if args.format in ("customer", "both"):
+            path = out_dir / "customer_brief.md"
+            path.write_text(
+                builder.customer_brief(
+                    ids, market=args.market, title=args.title,
+                    prepared_for=args.prepared_for,
+                )
+            )
+            written.append(path)
+        if args.format in ("internal", "both"):
+            path = out_dir / "internal_report.md"
+            path.write_text(builder.internal_report(ids, market=args.market))
+            written.append(path)
+
+    print(f"Opportunities: {len(ids)}")
+    for path in written:
+        print(f"Wrote {path}")
+    if not ids:
+        print(
+            "No opportunities matched. Reports were still written so the empty state is "
+            "visible rather than silently skipped."
+        )
     return 0
 
 
@@ -208,6 +263,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("--out-dir", default="reports/out")
     report.set_defaults(func=cmd_report)
+
+    brief = sub.add_parser(
+        "brief", help="Generate the customer brief and/or the internal research report"
+    )
+    brief.add_argument(
+        "--format", choices=["customer", "internal", "both"], default="both"
+    )
+    brief.add_argument("--limit", type=int, default=5, help="Number of opportunities")
+    brief.add_argument(
+        "--classification", action="append", default=None,
+        choices=["HIGH", "MEDIUM", "NEEDS_VERIFICATION"],
+        help="Classification to include (repeatable). Defaults to HIGH and MEDIUM.",
+    )
+    brief.add_argument("--project-ids", help="Explicit comma-separated project ids")
+    brief.add_argument("--market", default="Dallas–Fort Worth, TX")
+    brief.add_argument("--title", default=None)
+    brief.add_argument(
+        "--prepared-for", default=None,
+        help="Recipient name for the customer brief. Defaults to a '[Contractor]' placeholder.",
+    )
+    brief.add_argument(
+        "--include-inactive", action="store_true",
+        help="Include projects whose procurement status is closed or unverified",
+    )
+    brief.add_argument(
+        "--allow-siblings", action="store_true",
+        help=(
+            "Allow several suites of one building to appear as separate opportunities. "
+            "By default at most one project per building key is selected."
+        ),
+    )
+    brief.add_argument(
+        "--no-eligibility-filter", action="store_true",
+        help="Skip the customer-brief eligibility criteria (diagnostic use only)",
+    )
+    brief.add_argument("--out-dir", default="reports/out")
+    brief.set_defaults(func=cmd_brief)
 
     return parser
 
