@@ -77,7 +77,11 @@ class AppConfig:
 
     #: Access levels the authorization layer understands. Payment is not implemented; this
     #: exists so monetization does not require redesigning authorization later.
-    access_levels: tuple[str, ...] = ("FREE", "PRO", "TEAM")
+    #:
+    #: ADMIN is an operator level, not a paid tier. It gates the internal operations view and
+    #: is granted only through the CLI (`oppintel-admin grant`), never through a web route, so
+    #: there is no request a user can make that raises their own privileges.
+    access_levels: tuple[str, ...] = ("FREE", "PRO", "TEAM", "ADMIN")
 
     @property
     def templates_dir(self) -> Path:

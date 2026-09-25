@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+
+import click
 from typing import Any
 
 from flask import (
@@ -191,6 +193,25 @@ def create_app(config: AppConfig | None = None) -> Flask:
                 "errors/404.html", page_title="Page not found", seo=seo
             ),
             404,
+        )
+
+    @app.errorhandler(403)
+    def forbidden(error: Any) -> tuple[str, int]:
+        """Signed in, but not permitted.
+
+        Distinct from 404 so the response is honest about what happened: the page exists, the
+        account simply does not have access. The body discloses nothing about what the page
+        contains.
+        """
+        seo = g.seo_builder.simple(
+            "Not permitted", "This account does not have access to that page."
+        )
+        seo.noindex = True
+        return (
+            render_template(
+                "errors/403.html", page_title="Not permitted", seo=seo
+            ),
+            403,
         )
 
     @app.errorhandler(500)
@@ -606,13 +627,18 @@ def create_app(config: AppConfig | None = None) -> Flask:
     # =====================================================================
 
     @app.route("/admin/data")
+    @_require_admin
     def admin_data() -> Any:
-        """A read-only operations view.
+        """A read-only operations view, restricted to operators.
 
-        Not authenticated in the MVP because it exposes only aggregate counts that are already
-        public, and it is not linked from any public page. It deliberately shows no credentials,
-        no source URLs, no ingestion endpoints and no user data. Deployment should place it
-        behind network-level access control; see the README.
+        Requires an account with the ADMIN access level. An unauthenticated request is sent to
+        sign-in; a signed-in non-operator receives 403. The level is granted only through the
+        CLI, so no web request can escalate to it.
+
+        The page shows aggregate counts, source coverage and the data quality summary. It
+        deliberately exposes no credentials, no source URLs, no ingestion or connector
+        endpoints, no database paths and no user data — so even an operator cannot read
+        anything here that would be dangerous if the page were reached.
         """
         from ..reporting import data_quality_report
 
@@ -758,6 +784,36 @@ def _detail_title(project: dict[str, Any], g: Any) -> str:
     return f"{name[:70]} — {city} {g.trade.short_label} Opportunity".strip()
 
 
+def _require_admin(view: Any) -> Any:
+    """Gate a view to authenticated operators.
+
+    Three distinct outcomes, deliberately:
+
+    * No session at all -> redirect to sign-in with `next` pointing back here, which is the
+      behaviour a browser user expects from a private page.
+    * Signed in but not an operator -> 403. The distinction matters: a signed-in customer is
+      not a stranger to be sent round the sign-in loop again, and telling them plainly that
+      the page is not for them is both clearer and more honest than a redirect that appears
+      to do nothing.
+    * Operator -> the view runs.
+
+    This wraps the view rather than sitting in `before_request` so the check lives with the
+    route it protects. A future private route cannot be added without visibly opting in.
+    """
+    from functools import wraps
+
+    @wraps(view)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        user = getattr(g, "user", None)
+        if user is None:
+            return redirect(url_for("signin", next=request.path))
+        if not user.is_admin:
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def _register_cli(app: Flask, cfg: AppConfig) -> None:
     """Operational commands. The CLI in `oppintel.cli` remains the primary mechanism."""
 
@@ -780,3 +836,42 @@ def _register_cli(app: Flask, cfg: AppConfig) -> None:
         db.init_app_schema()
         print(f"slugs created: {ensure_slugs(db)}")
         print(f"projects indexed: {rebuild_index(db)}")
+
+    @app.cli.command("grant-admin")
+    @click.argument("email")
+    def grant_admin_command(email: str) -> None:
+        """Grant the ADMIN access level to an existing account.
+
+        The only way to become an operator. There is deliberately no web route that sets this
+        level, so a request cannot escalate its own privileges and a compromised session
+        cannot promote itself. Run it on the host that owns the database.
+        """
+        db = Database(cfg.database_path)
+        db.init_schema()
+        db.init_app_schema()
+        cursor = db.conn.execute(
+            "UPDATE app_user SET access_level = 'ADMIN' WHERE email = ?",
+            (email.strip().lower(),),
+        )
+        db.conn.commit()
+        if cursor.rowcount == 0:
+            print(f"No account found for {email!r}. Create it at /signup first.")
+            raise SystemExit(1)
+        print(f"Granted ADMIN to {email}")
+
+    @app.cli.command("revoke-admin")
+    @click.argument("email")
+    def revoke_admin_command(email: str) -> None:
+        """Return an operator account to the FREE level."""
+        db = Database(cfg.database_path)
+        db.init_schema()
+        db.init_app_schema()
+        cursor = db.conn.execute(
+            "UPDATE app_user SET access_level = 'FREE' WHERE email = ?",
+            (email.strip().lower(),),
+        )
+        db.conn.commit()
+        if cursor.rowcount == 0:
+            print(f"No account found for {email!r}.")
+            raise SystemExit(1)
+        print(f"Revoked ADMIN from {email}")
