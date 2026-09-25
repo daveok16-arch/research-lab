@@ -1,0 +1,150 @@
+{# Base layout. All pages extend this. #}
+{#
+  `seo` is expected from every route. The guarded fallback below exists so that a failure in
+  metadata construction degrades to a plain page rather than a 500 — an error page that itself
+  errors is the worst outcome for both a user and a crawler.
+#}
+{% set seo = seo | default(none) %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ seo.title if seo else page_title | default('Commercial Construction Opportunities') }}{% endblock %}</title>
+<meta name="description" content="{{ seo.description if seo else '' }}">
+{% if seo and seo.canonical %}<link rel="canonical" href="{{ seo.canonical }}">{% endif %}
+<meta name="robots" content="{{ seo.robots_directive if seo else 'noindex,nofollow' }}">
+<meta name="theme-color" content="#0f172a">
+
+{# Open Graph / Twitter. Only emitted when a real canonical URL is known. #}
+{% if seo and seo.canonical %}
+<meta property="og:type" content="{{ seo.og_type }}">
+<meta property="og:title" content="{{ seo.title }}">
+<meta property="og:description" content="{{ seo.description }}">
+<meta property="og:url" content="{{ seo.canonical }}">
+<meta property="og:site_name" content="{{ market.short_name }} Construction Opportunity Intelligence">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{{ seo.title }}">
+<meta name="twitter:description" content="{{ seo.description }}">
+{% endif %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+{% if seo %}{% for block in seo.json_ld %}
+<script type="application/ld+json">{{ block | tojson }}</script>
+{% endfor %}{% endif %}
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="{{ url_for('home') }}">
+      <span class="brand-mark">{{ market.short_name }}</span>
+      <span class="brand-text">
+        <strong>Construction Opportunity Intelligence</strong>
+        <small>Commercial {{ trade.short_label or trade.label }} · {{ market.name }}</small>
+      </span>
+    </a>
+
+    <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Toggle navigation">
+    <label for="nav-toggle" class="nav-toggle-label" aria-hidden="true">
+      <span></span><span></span><span></span>
+    </label>
+
+    <nav class="site-nav" aria-label="Main">
+      <ul>
+        <li><a href="{{ url_for('home') }}">Home</a></li>
+        <li><a href="{{ url_for('opportunities') }}">Opportunities</a></li>
+        <li><a href="{{ url_for('markets_index') }}">Markets</a></li>
+        <li><a href="{{ url_for('trades_index') }}">Trades</a></li>
+        <li><a href="{{ url_for('how_it_works') }}">How It Works</a></li>
+        <li><a href="{{ url_for('reports_index') }}">Reports</a></li>
+      </ul>
+      <div class="nav-account">
+        {% if current_user %}
+          <a class="btn btn-ghost" href="{{ url_for('saved') }}">
+            Saved{% if saved_count %} ({{ saved_count }}){% endif %}
+          </a>
+          <a class="btn btn-ghost" href="{{ url_for('preferences') }}">Preferences</a>
+          <form method="post" action="{{ url_for('signout') }}" class="inline-form">
+            <button class="btn btn-outline" type="submit">Sign Out</button>
+          </form>
+        {% else %}
+          <a class="btn btn-ghost" href="{{ url_for('signin') }}">Sign In</a>
+          <a class="btn btn-primary" href="{{ url_for('signup') }}">Create Free Account</a>
+        {% endif %}
+      </div>
+    </nav>
+  </div>
+</header>
+
+{% block hero %}{% endblock %}
+
+<main id="main" class="wrap">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-stack">
+      {% for category, message in messages %}
+        <p class="flash flash-{{ category }}">{{ message }}</p>
+      {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div>
+      <h3>{{ market.short_name }} Construction Opportunity Intelligence</h3>
+      <p>
+        Commercial construction intelligence for {{ trade.label | lower }} contractors, built
+        from public construction and permit records.
+      </p>
+      <p class="muted small">
+        Data last collected: {{ freshness.display }}.
+      </p>
+    </div>
+    <div>
+      <h4>Product</h4>
+      <ul>
+        <li><a href="{{ url_for('opportunities') }}">Opportunities</a></li>
+        <li><a href="{{ url_for('how_it_works') }}">How It Works</a></li>
+        <li><a href="{{ url_for('reports_index') }}">Reports</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Coverage</h4>
+      <ul>
+        {% for m in all_markets if m.active %}
+        <li><a href="{{ url_for('market_landing', market_slug=m.slug) }}">{{ m.name }}</a></li>
+        {% endfor %}
+        {% for t in all_trades if t.active %}
+        <li><a href="{{ url_for('trade_landing', trade_slug=t.slug or t.id) }}">{{ t.label }}</a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div>
+      <h4>Account</h4>
+      <ul>
+        {% if current_user %}
+        <li><a href="{{ url_for('saved') }}">Saved opportunities</a></li>
+        <li><a href="{{ url_for('preferences') }}">Preferences</a></li>
+        {% else %}
+        <li><a href="{{ url_for('signin') }}">Sign in</a></li>
+        <li><a href="{{ url_for('signup') }}">Create free account</a></li>
+        {% endif %}
+      </ul>
+    </div>
+  </div>
+  <div class="wrap footer-legal">
+    <p>
+      Built from publicly available construction and permitting records. Permit evidence does
+      not confirm that a project is currently accepting bids for any trade. Confirm all figures
+      with the issuing jurisdiction before commercial reliance.
+    </p>
+    <p class="muted small">&copy; {{ now_year }} · Generated by an AI agent (OpenHands) on behalf of the report owner.</p>
+  </div>
+</footer>
+</body>
+</html>

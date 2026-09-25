@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="section-head">
+    <h2>Preferences</h2>
+    <p>
+      These settings are stored against your account and prepare the system for future markets
+      and trades. They do not change what the public site shows.
+    </p>
+  </div>
+
+  <form method="post" class="filters" style="max-width:720px">
+    <div class="filter-grid">
+      <div class="field">
+        <label for="market_id">Market</label>
+        <select id="market_id" name="market_id">
+          {% for m in all_markets %}
+          <option value="{{ m.id }}" {% if prefs.get('market_id') == m.id %}selected{% endif %}>
+            {{ m.name }}{% if not m.active %} (planned){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="trade_id">Trade</label>
+        <select id="trade_id" name="trade_id">
+          {% for t in all_trades %}
+          <option value="{{ t.id }}" {% if prefs.get('trade_id') == t.id %}selected{% endif %}>
+            {{ t.label }}{% if not t.active %} (planned){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label for="cities">Cities (hold Ctrl or Cmd to select more than one)</label>
+      <select id="cities" name="cities" multiple size="6">
+        {% for city in cities %}
+        <option value="{{ city }}" {% if city in prefs.get('cities', []) %}selected{% endif %}>{{ city }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label for="project_types">Project types</label>
+      <select id="project_types" name="project_types" multiple size="6">
+        {% for t in project_types %}
+        <option value="{{ t }}" {% if t in prefs.get('project_types', []) %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label class="checkline">
+        <input type="checkbox" name="notify_in_app" value="1"
+               {% if prefs.get('notify_in_app', 1) %}checked{% endif %}>
+        In-app new opportunity notices
+      </label>
+      <label class="checkline">
+        <input type="checkbox" name="notify_email" value="1"
+               {% if prefs.get('notify_email', 0) %}checked{% endif %}>
+        Email notices
+      </label>
+      <span class="form-help">
+        Email delivery is not enabled in this release. The setting is stored so your preference
+        is preserved for when it is.
+      </span>
+    </div>
+
+    <div class="filter-actions">
+      <button class="btn btn-primary" type="submit">Save preferences</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

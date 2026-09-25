@@ -1,11 +1,23 @@
-__pycache__/
-*.pyc
-*.db
-*.db-wal
-*.db-shm
+
+# Environment files
+.env
+
+# Database and generated artefacts
+data/*.db
+data/*.db-wal
+data/*.db-shm
 data/raw/
 reports/out/
-.pytest_cache/
+
+# Python
+__pycache__/
+*.pyc
 *.egg-info/
-.agent_tmp/
-reports/out/
+.pytest_cache/
+.venv/
+venv/
+
+# Editor and OS
+.idea/
+.vscode/
+.DS_Store

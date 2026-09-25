@@ -1,0 +1,59 @@
+{# Reusable opportunity card. Used by the directory, homepage and landing pages. #}
+<article class="card">
+  <div class="badge-row">
+    <span class="badge badge-{{ project.classification | lower | replace('_','-') }}">
+      {{ project.classification | replace('_',' ') }}
+    </span>
+    <span class="badge badge-evidence">{{ project.evidence_label }}</span>
+    {% if project.procurement_status == 'Closed' %}
+      <span class="badge badge-closed">Closed</span>
+    {% endif %}
+    {% if not project.is_report_eligible and project.procurement_status != 'Closed' %}
+      <span class="badge badge-plain">Lead only</span>
+    {% endif %}
+    {% if project.shares_building %}
+      <span class="badge badge-plain">Shares building</span>
+    {% endif %}
+  </div>
+
+  <h3>
+    {% if project.slug %}
+      <a href="{{ url_for('opportunity_detail', slug=project.slug) }}">
+        {{ (project.project_name or project.address or 'Commercial project') | truncate(88) }}
+      </a>
+    {% else %}
+      {{ (project.project_name or project.address or 'Commercial project') | truncate(88) }}
+    {% endif %}
+  </h3>
+
+  <p class="card-meta">
+    {{ project.address | or_na }}{% if project.city %}, {{ project.city }}{% endif %}
+  </p>
+
+  <dl class="facts">
+    <div>
+      <dt>Project type</dt>
+      <dd>{{ project.project_type | or_na }}</dd>
+    </div>
+    <div>
+      <dt>Status</dt>
+      <dd>{{ project.project_status | or_na }}</dd>
+    </div>
+    <div>
+      <dt>Procurement</dt>
+      <dd>{{ project.procurement_status | or_na }}</dd>
+    </div>
+    <div>
+      <dt>Permit date</dt>
+      <dd>{{ project.permit_date | nice_date }}</dd>
+    </div>
+  </dl>
+
+  <div class="card-foot">
+    {% if project.shares_building %}
+      <span>Other records share this street address; they are most likely separate suites of
+        one building.</span><br>
+    {% endif %}
+    Last verified {{ project.last_verified | month_year }}
+  </div>
+</article>

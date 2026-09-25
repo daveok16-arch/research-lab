@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="empty">
+    <h3>Something went wrong</h3>
+    <p>
+      The problem has been logged and will be investigated. No further detail is shown here.
+    </p>
+    <a class="btn btn-primary" href="{{ url_for('home') }}">Return to the homepage</a>
+  </div>
+</section>
+{% endblock %}

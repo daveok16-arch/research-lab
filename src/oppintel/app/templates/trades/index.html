@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="section-head">
+    <h2>Trades</h2>
+    <p>
+      Each trade declares its own evidence rules, so adding a trade is a configuration change
+      rather than a new application. Only one trade is active in the current release.
+    </p>
+  </div>
+  <div class="card-grid">
+    {% for t in trades %}
+    <article class="card">
+      <div class="badge-row">
+        {% if t.active %}
+          <span class="badge badge-evidence">Active</span>
+        {% else %}
+          <span class="badge badge-plain">Planned</span>
+        {% endif %}
+      </div>
+      <h3>
+        {% if t.active %}
+          <a href="{{ url_for('trade_landing', trade_slug=t.slug or t.id) }}">{{ t.label }}</a>
+        {% else %}
+          {{ t.label }}
+        {% endif %}
+      </h3>
+      {% if t.active %}
+      <p class="card-meta">Evidence from mechanical permits and permit scope text.</p>
+      {% else %}
+      <p class="muted small">Not yet available. No figures are shown, because none exist.</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">{{ city_name }} Commercial {{ trade.short_label or trade.label }} Construction Opportunities</h1>
+    <p class="lede" style="font-size:1rem">
+      Commercial construction projects in {{ city_name }}, {{ mkt.state }} with documented
+      mechanical evidence, compiled from public City permit records.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{ url_for('opportunities', city=city_name) }}">
+        Explore {{ city_name }} opportunities
+      </a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span><span class="stat-label">Commercial projects</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span><span class="stat-label">With mechanical evidence</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span><span class="stat-label">Mechanical permit on file</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.high) }}</span><span class="stat-label">Classified HIGH</span></div>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Current {{ city_name }} opportunities</h2>
+    <p>Showing {{ result.total }} matching opportunities, ordered by permit date.</p>
+  </div>
+  {% if result.items %}
+    <div class="card-grid">
+      {% for project in result.items %}
+        {% include "partials/opportunity_card.html" %}
+      {% endfor %}
+    </div>
+    <p style="margin-top:20px">
+      <a class="btn btn-primary" href="{{ url_for('opportunities', city=city_name) }}">
+        See all {{ result.total }} {{ city_name }} opportunities
+      </a>
+    </p>
+  {% else %}
+    {% with heading = "No opportunities published for " ~ city_name ~ " yet",
+            message = "The database holds no discoverable projects in this city at present.",
+            suggestions = ["Try the full market directory.", "Widen the date range on the directory page."],
+            reset_url = url_for('opportunities') %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="notice notice-plain">
+    <h4>About this page</h4>
+    <p>
+      Counts come from the current database. Records appear when a permit assembles into a
+      commercial project with documented mechanical evidence and an active procurement status.
+      Finished work is excluded.
+    </p>
+    <p>
+      Permit evidence does not confirm that a project is currently accepting bids for any trade.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

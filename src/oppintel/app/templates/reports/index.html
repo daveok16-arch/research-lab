@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">Published Reports</h1>
+    <p class="lede" style="font-size:1rem">
+      Market summaries and opportunity briefs, generated from the verified project records.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Available reports</h2>
+    <p>
+      Every figure in these reports comes from the current database, so a report cannot drift
+      from the opportunity pages it describes.
+    </p>
+  </div>
+
+  {% if reports %}
+  <div class="card-grid">
+    {% for report in reports %}
+    <article class="card">
+      <div class="badge-row"><span class="badge badge-plain">{{ report.kind }}</span></div>
+      <h3><a href="{{ url_for('report_detail', report_slug=report.slug) }}">{{ report.title }}</a></h3>
+      <p class="card-meta">{{ report.summary }}</p>
+      <div class="card-foot">
+        {{ report.opportunity_count }} opportunit{{ 'y' if report.opportunity_count == 1 else 'ies' }} included
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+    {% with heading = "No reports are currently published",
+            message = "Reports are generated on request from the verified records.",
+            suggestions = ["Run an ingestion and reassembly to populate the database."],
+            reset_url = None %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="notice notice-plain">
+    <h4>Not published here</h4>
+    <p>
+      Internal audit reports, validation reports and data quality reports are not public. They
+      contain the full evidence trail and operational detail intended for internal use.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

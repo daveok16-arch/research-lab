@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="section-head">
+    <h2>Markets</h2>
+    <p>
+      A market is a geographic grouping of cities served by the same public sources. The
+      platform is configured for one market at a time; additional markets are added by
+      configuration and their own data sources.
+    </p>
+  </div>
+
+  <div class="card-grid">
+    {% for card in cards %}
+    <article class="card">
+      <div class="badge-row">
+        {% if card.market.active %}
+          <span class="badge badge-evidence">Active</span>
+        {% else %}
+          <span class="badge badge-plain">Planned</span>
+        {% endif %}
+      </div>
+      <h3>
+        {% if card.market.active %}
+          <a href="{{ url_for('market_landing', market_slug=card.market.slug) }}">{{ card.market.name }}</a>
+        {% else %}
+          {{ card.market.name }}
+        {% endif %}
+      </h3>
+      <p class="card-meta">{{ card.market.cities | length }} configured cities</p>
+      {% if card.stats %}
+        <dl class="facts">
+          <div><dt>Commercial projects</dt><dd>{{ "{:,}".format(card.stats.projects_public) }}</dd></div>
+          <div><dt>With mechanical evidence</dt><dd>{{ "{:,}".format(card.stats.with_mechanical) }}</dd></div>
+        </dl>
+      {% else %}
+        <p class="muted small">
+          This market is not yet ingested. No figures are shown, because none exist.
+        </p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

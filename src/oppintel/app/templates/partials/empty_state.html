@@ -1,0 +1,13 @@
+{# Useful empty state. Never manufactures opportunities to fill the interface. #}
+<div class="empty">
+  <h3>{{ heading or 'No matching opportunities' }}</h3>
+  <p>{{ message or 'Nothing matched the current filters.' }}</p>
+  {% if suggestions %}
+  <ul>
+    {% for s in suggestions %}<li>{{ s }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if reset_url %}
+  <a class="btn btn-outline" href="{{ reset_url }}">Clear all filters</a>
+  {% endif %}
+</div>

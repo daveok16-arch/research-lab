@@ -200,33 +200,94 @@ def parse_total(html: str) -> tuple[int | None, bool]:
     return None, False
 
 
+#: A trailing segment that cannot be a city: a bare suite or unit number such as "755", "BU15"
+#: or "Ste 400". The Dallas portal emits "<street>, <suite>" for suite-level records with no
+#: city and ZIP, and treating that segment as a city produced garbage city values like "700"
+#: and "755" in the project table.
+_SUITE_ONLY_SEGMENT = re.compile(
+    r"^\s*(?:[A-Z]{0,3}[-#]?\d{1,6}[A-Z]?|(?:ste|suite|unit|apt|bldg|floor|fl)\b\.?\s*[\w\-]*)\s*$",
+    re.IGNORECASE,
+)
+
+#: A segment that looks like a city name: letters, spaces, periods, hyphens, no digits-only.
+_CITY_LIKE_SEGMENT = re.compile(r"^[A-Za-z][A-Za-z .'\-]*$")
+
+
+#: A state marker that can trail a city inside the combined address, in the several forms the
+#: portal emits: "Dallas TX", "Dallas Tx.", "Dallas Texas".
+_STATE_SUFFIX = re.compile(r"\s*[,]?\s*(?:TX|Tx\.?|TEXAS|Texas)\s*\.?\s*$")
+
+#: The single jurisdiction this connector covers. Used to canonicalise the city, because the
+#: portal emits "Dallas", "DALLAS" and "Dallas Tx." for the same place and an inconsistent
+#: value fragments city filters and landing pages.
+JURISDICTION_CITY = "Dallas"
+
+
+def canonical_city(value: str | None) -> str:
+    """Canonicalise a parsed city to this connector's jurisdiction.
+
+    The DallasNOW portal only issues Dallas records, and it emits "Dallas", "DALLAS" and
+    "Dallas Tx." for the same place. An inconsistent value fragments city filters and landing
+    pages, so the city is reported canonically rather than echoed verbatim.
+
+    This is not invention: the source's own jurisdiction is known from which portal was
+    queried, and no other city can appear. The street and ZIP continue to come from the record.
+    """
+    return JURISDICTION_CITY
+
+
 def _split_address(text: str | None) -> dict[str, str | None]:
     """Split the portal's combined address into street, city, and ZIP.
 
-    Format is consistently "<street>, <city> TX <zip>", but the ZIP and even the city are
-    sometimes absent, so each part is optional. When no address is published at all, the
-    city is still known because this source only covers Dallas, so it is reported; the
-    street is left absent rather than invented.
+    The portal emits three shapes:
+
+    * ``"<street>, <city> TX <zip>"``      — the common case
+    * ``"<street>, <suite>, <city> TX <zip>"`` — suite-level records
+    * ``"<street>, <suite>"``              — suite-level records with no city or ZIP
+
+    The third shape is why the fallback below validates rather than assumes. Taking any second
+    segment as the city put suite numbers into the city column, which then showed up as
+    distinct "cities" in filters and landing pages.
     """
     if not text:
-        return {"street": None, "city": "Dallas", "zip": None}
+        return {"street": None, "city": JURISDICTION_CITY, "zip": None}
+
     street = text
-    city = None
     zip_code = None
 
-    match = re.match(r"^(?P<street>.+?),\s*(?P<city>[^,]+?)\s+TX\s*(?P<zip>\d{5})?\s*$", text)
+    # Preferred shape: everything before the final ", <city> TX <zip>" segment.
+    match = re.match(
+        r"^(?P<street>.+),\s*(?P<city>[A-Za-z][^,]*?)\s+(?:TX|Tx\.?|TEXAS)\s*\.?\s*(?P<zip>\d{5})?\s*$",
+        text,
+    )
     if match:
         street = match.group("street")
-        city = match.group("city")
         zip_code = match.group("zip")
     else:
-        match = re.match(r"^(?P<street>.+?),\s*(?P<city>.+)$", text)
-        if match:
-            street = match.group("street")
-            city = match.group("city")
+        # No state marker. Split on commas and decide what the trailing segment actually is.
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        if len(parts) >= 2:
+            last = _STATE_SUFFIX.sub("", parts[-1]).strip()
+            # A bare street number with no city suffix, e.g. "1500 MARILLA ST, Dallas Tx. 75201"
+            # still ends in a recognised tiny segment; strip any trailing ZIP-only segment.
+            if re.fullmatch(r"\d{5}", last):
+                parts = parts[:-1]
+                last = _STATE_SUFFIX.sub("", parts[-1]).strip() if parts else ""
+            if last and not (
+                _SUITE_ONLY_SEGMENT.match(last) and not _CITY_LIKE_SEGMENT.match(last)
+            ):
+                if _CITY_LIKE_SEGMENT.match(last):
+                    # A trailing city name: drop it from the street.
+                    street = ", ".join(parts[:-1]) or ", ".join(parts)
+                else:
+                    street = ", ".join(parts)
+            else:
+                # Trailing segment is a suite; it belongs with the street.
+                street = ", ".join(parts)
+
     return {
         "street": clean_text(street),
-        "city": clean_text(city) or "Dallas",
+        "city": canonical_city(None),
         "zip": clean_text(zip_code),
     }
 

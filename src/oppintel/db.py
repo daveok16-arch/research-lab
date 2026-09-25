@@ -194,6 +194,101 @@ CREATE TABLE IF NOT EXISTS project_classification (
 CREATE INDEX IF NOT EXISTS idx_classification_project ON project_classification(project_id);
 """
 
+#: Application-layer schema. Kept separate from the intelligence schema above so the
+#: boundary between "facts we collected" and "how the website operates" stays visible.
+#:
+#: Nothing here duplicates intelligence data. Saved opportunities and alerts reference a
+#: project by id; they never copy project fields, so a re-ingest cannot leave a user's saved
+#: record holding stale or contradictory facts.
+APP_SCHEMA = """
+-- Public URL identity for a project. Generated from the project's own facts, and stored so
+-- a published URL never changes when the underlying row is rewritten by a re-assembly.
+CREATE TABLE IF NOT EXISTS project_slug (
+    slug               TEXT PRIMARY KEY,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_slug_project ON project_slug(project_id);
+
+-- Minimal account model. No passwords are stored in plain text; see app/auth.py.
+CREATE TABLE IF NOT EXISTS app_user (
+    id                 INTEGER PRIMARY KEY,
+    email              TEXT NOT NULL UNIQUE,
+    password_hash      TEXT NOT NULL,
+    display_name       TEXT,
+    access_level       TEXT NOT NULL DEFAULT 'FREE',
+    is_active          INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT NOT NULL,
+    last_login_at      TEXT
+);
+
+-- A saved opportunity stores the *relationship*, never a copy of the project.
+CREATE TABLE IF NOT EXISTS saved_opportunity (
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    saved_at           TEXT NOT NULL,
+    note               TEXT,
+    PRIMARY KEY (user_id, project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_user ON saved_opportunity(user_id, saved_at);
+
+-- One preference row per user. Defaults are applied at creation from the active market and
+-- trade, so a new user starts on the product's current configuration rather than a literal.
+CREATE TABLE IF NOT EXISTS user_preference (
+    user_id            INTEGER PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
+    market_id          TEXT,
+    trade_id           TEXT,
+    cities             TEXT,
+    project_types      TEXT,
+    notify_in_app      INTEGER NOT NULL DEFAULT 1,
+    notify_email       INTEGER NOT NULL DEFAULT 0,
+    updated_at         TEXT NOT NULL
+);
+
+-- Alert architecture only. A matching event is recorded; delivery is a later concern.
+CREATE TABLE IF NOT EXISTS alert_event (
+    id                 INTEGER PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    kind               TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    read_at            TEXT,
+    UNIQUE (user_id, project_id, kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_user ON alert_event(user_id, read_at);
+
+-- Product analytics. Deliberately minimal: an event name, an optional project, and a
+-- timestamp. No IP address, no user agent, no free-text payload.
+CREATE TABLE IF NOT EXISTS analytics_event (
+    id                 INTEGER PRIMARY KEY,
+    event_name         TEXT NOT NULL,
+    project_id         INTEGER REFERENCES project(id) ON DELETE SET NULL,
+    market_id          TEXT,
+    trade_id           TEXT,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_event ON analytics_event(event_name, created_at);
+
+-- Full-text index over the searchable project text. A separate table rather than a virtual
+-- column on `project`, so the intelligence schema stays untouched and the index can be
+-- rebuilt independently. Rows are referenced by project id.
+CREATE VIRTUAL TABLE IF NOT EXISTS project_search USING fts5(
+    project_id UNINDEXED,
+    project_name,
+    address,
+    city,
+    permit_number,
+    work_description,
+    owner,
+    project_type,
+    tokenize = 'unicode61'
+);
+"""
+
 
 def _iso(value: Any) -> str | None:
     if value is None:
@@ -226,7 +321,21 @@ class Database:
         self.close()
 
     def init_schema(self) -> None:
+        """Create the intelligence schema.
+
+        Deliberately does not create the application tables: the intelligence layer must keep
+        working against a database that has never been touched by the web application.
+        """
         self.conn.executescript(SCHEMA)
+        self.conn.commit()
+
+    def init_app_schema(self) -> None:
+        """Create the application tables on top of an existing intelligence database.
+
+        Additive and idempotent: every statement is `IF NOT EXISTS`, so this can run against a
+        production database that already holds ingested data without altering it.
+        """
+        self.conn.executescript(APP_SCHEMA)
         self.conn.commit()
 
     # --- sources and runs -----------------------------------------------------

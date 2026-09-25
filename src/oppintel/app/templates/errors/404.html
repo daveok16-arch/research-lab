@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="empty">
+    <h3>That page could not be found</h3>
+    <p>The link may be out of date, or the opportunity may no longer be published.</p>
+    <ul>
+      <li>Browse the opportunity directory for currently published projects.</li>
+      <li>If you followed a saved link, the record may have been removed by a later data refresh.</li>
+    </ul>
+    <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Browse opportunities</a>
+  </div>
+</section>
+{% endblock %}
