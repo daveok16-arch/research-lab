@@ -158,6 +158,74 @@ its own evidence.
 
 ---
 
+## Why the classified HIGH count differs from the customer-visible HIGH count
+
+Two different numbers describe "HIGH", and they are supposed to differ. This is the pipeline
+working, not a discrepancy to reconcile away.
+
+| Number | Where it comes from | Meaning |
+|---|---|---|
+| **13 HIGH** | `project.classification` in the intelligence database | Projects the classification gates judged HIGH on their evidence |
+| **10 HIGH** | `/opportunities`, `/api/opportunities?classification=HIGH`, `/api/statistics` | Of those, the ones that are *currently discoverable* |
+
+### Where the 3 go
+
+The difference is the procurement-status filter, and nothing else. Of the 13 classified HIGH,
+three have a source status recording the work as finished:
+
+| Project | Recorded status |
+|---|---|
+| 7850 AVIATION PL | Final CO Issued |
+| 2911 TURTLE CREEK BLVD, 600 | Closed - Complete |
+| 3001 OLYMPUS BLVD, 130 | Closed - Complete |
+
+A building whose certificate of occupancy has issued has already had its mechanical work
+installed. Presenting it as a lead would be a false claim, so those three are excluded from
+discovery — and the count is verified rather than assumed: the eligibility filter removes
+**zero** of the 13, so the entire difference is the procurement filter.
+
+They are not deleted. Each remains reachable at its own URL, where the page states the status
+plainly and warns that the mechanical scope has already been let or completed. A customer who
+follows an old link or a search result sees the truth rather than a 404.
+
+### The full funnel
+
+Every step is a filter with a stated purpose. No step changes a classification.
+
+```
+22,351 permit records              collected from three public sources
+   ↓  assembled by address
+3,996 projects                     permits grouped into the underlying project
+   ↓  classification gates
+   708 HIGH or MEDIUM               scored on documented evidence
+   ↓  procurement filter            excludes Closed and Not verified
+   509 with active procurement      work recorded as proceeding
+   ↓  trade evidence filter         config/trades.yaml
+   276 discoverable                 HVAC/mechanical evidence present
+```
+
+Where the 13 vs 10 difference sits:
+
+```
+    13 HIGH classified
+   ↓  procurement filter
+    10 HIGH discoverable            exposed by the customer application
+```
+
+### Why the filters live in the application layer
+
+Classification answers *"how strong is the evidence?"* — a property of the record, computed
+once and stored. Discovery answers *"is this worth showing a customer today?"* — a property of
+the moment, which also depends on whether the work is still live and whether it matches the
+trade being served.
+
+Keeping them separate means the audit view (`reports/out/validation_report.md`, which lists all
+13) and the customer view (which lists 10) can both be correct at the same time. Collapsing them
+— by re-classifying closed work as something else, or by showing finished buildings so the
+numbers match — would destroy the distinction the product depends on.
+
+---
+
 ## Local development
 
 ```bash
@@ -308,7 +376,7 @@ idempotent because raw records are keyed by content hash.
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -q      # 457 tests
+PYTHONPATH=src python -m pytest tests/ -q      # 481 tests
 ```
 
 | Suite | Covers |
@@ -318,6 +386,7 @@ PYTHONPATH=src python -m pytest tests/ -q      # 457 tests
 | `test_app_accounts.py` | Signup, signin, password hashing, enumeration resistance, open redirect, saved opportunities |
 | `test_app_seo.py` | Metadata, canonical URLs, noindex rules, sitemap, robots, structured data |
 | `test_app_api.py` | API contract, null encoding, statistics, no internal leakage |
+| `test_app_admin.py` | /admin/data access: anonymous, non-operator, operator, escalation, exposure |
 | `test_app_architecture.py` | Market/trade are configuration; no intelligence logic duplicated |
 | `test_classify.py`, `test_normalize.py`, `test_provenance.py`, … | The intelligence engine (308 tests, unchanged) |
 
