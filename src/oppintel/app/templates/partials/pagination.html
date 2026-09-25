@@ -1,0 +1,22 @@
+{# Pagination. Server-rendered links so a crawler and a phone both work without JS. #}
+{% if result.total_pages > 1 %}
+<nav class="pager" aria-label="Result pages">
+  {% if result.has_prev %}
+    <a class="btn btn-outline btn-sm"
+       href="{{ url_for('opportunities') }}?{{ filters.as_query_string(page=result.page - 1) }}">Previous</a>
+  {% else %}
+    <span class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
+  {% endif %}
+
+  <span class="result-count">
+    Page {{ result.page }} of {{ result.total_pages }}
+  </span>
+
+  {% if result.has_next %}
+    <a class="btn btn-outline btn-sm"
+       href="{{ url_for('opportunities') }}?{{ filters.as_query_string(page=result.page + 1) }}">Next</a>
+  {% else %}
+    <span class="btn btn-outline btn-sm disabled" aria-disabled="true">Next</span>
+  {% endif %}
+</nav>
+{% endif %}

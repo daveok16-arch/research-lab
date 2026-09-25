@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">How It Works</h1>
+    <p class="lede" style="font-size:1rem">
+      From public permit records to verified commercial opportunities, with the evidence trail
+      kept intact at every step.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>The pipeline</h2>
+    <p>Each stage is separate, and each is auditable.</p>
+  </div>
+  <div class="card-grid">
+    <article class="card">
+      <h3>1. Collect</h3>
+      <p>Public construction and permit records are read from City sources. Every response is
+        stored verbatim before it is parsed, so a correction can be replayed without
+        re-requesting from the City.</p>
+    </article>
+    <article class="card">
+      <h3>2. Normalize</h3>
+      <p>Source records are mapped onto a common shape. Values a source does not publish stay
+        empty. Nothing is inferred to fill a gap.</p>
+    </article>
+    <article class="card">
+      <h3>3. Assemble</h3>
+      <p>Individual permits at one address are grouped into the underlying project, so a
+        building with mechanical, electrical and plumbing permits appears once, not three
+        times.</p>
+    </article>
+    <article class="card">
+      <h3>4. Attach evidence</h3>
+      <p>Every field is recorded with the source that supplied it, the record identifier, the
+        source's own date, and the excerpt that supports it.</p>
+    </article>
+    <article class="card">
+      <h3>5. Classify</h3>
+      <p>Projects are scored against documented evidence and labelled HIGH, MEDIUM or
+        NEEDS_VERIFICATION. Every point awarded is recorded as a readable reason.</p>
+    </article>
+    <article class="card">
+      <h3>6. Report</h3>
+      <p>Verified projects become opportunity pages and customer reports. Missing information is
+        shown as Not verified rather than estimated or omitted.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Why two tiers of mechanical evidence</h2>
+  </div>
+  <dl class="facts">
+    <div>
+      <dt>Tier 1 — mechanical permit on file</dt>
+      <dd>The building department filed a mechanical permit at the address. The City itself
+        recorded mechanical scope, so no interpretation is needed.</dd>
+    </div>
+    <div>
+      <dt>Tier 2 — mechanical scope in permit text</dt>
+      <dd>The recorded work description names mechanical scope. This is documentary evidence
+        from the permit text rather than a separate trade permit.</dd>
+    </div>
+  </dl>
+  <p class="muted">
+    A project cannot reach HIGH on property class and value alone. Mechanical scope must be
+    documented.
+  </p>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>What we do not do</h2>
+  </div>
+  <ul>
+    <li>We do not claim a project is an open bid. No source in this market publishes bid status.</li>
+    <li>We do not estimate a project value, floor area, owner, contractor or architect. If the
+      source does not publish it, we show Not verified.</li>
+    <li>We do not list finished work as an active opportunity.</li>
+    <li>We do not treat service, repair, maintenance or like-for-like replacement as a
+      construction project.</li>
+    <li>We do not rank opportunities by an invented attractiveness score.</li>
+  </ul>
+</section>
+
+<section class="section">
+  <div class="notice notice-warn">
+    <h4>Important</h4>
+    <p>
+      Permit evidence does not confirm that a project is currently accepting bids for any
+      trade. Confirm procurement directly with the owner or general contractor, and confirm all
+      figures with the issuing jurisdiction before commercial reliance.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

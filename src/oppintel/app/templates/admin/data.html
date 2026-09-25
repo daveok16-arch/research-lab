@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="notice notice-plain">
+    <h4>Internal operations view</h4>
+    <p>
+      Read-only. Shows aggregate counts and data freshness only. No credentials, no source URLs,
+      no ingestion endpoints, no user data. Not linked from any public page.
+    </p>
+  </div>
+
+  <div class="stat-strip">
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_total) }}</span><span class="stat-label">Projects total</span></div>
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span><span class="stat-label">Discoverable</span></div>
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.high) }}</span><span class="stat-label">HIGH</span></div>
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.medium) }}</span><span class="stat-label">MEDIUM</span></div>
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span><span class="stat-label">With mechanical evidence</span></div>
+    <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.permit_records) }}</span><span class="stat-label">Permit records</span></div>
+  </div>
+
+  <h2 style="margin-top:30px">Source coverage</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Source</th><th>Coverage</th><th>Earliest</th><th>Latest</th><th class="num">Records</th><th>Retrieved</th></tr>
+      </thead>
+      <tbody>
+        {% for s in freshness.sources %}
+        <tr>
+          <td>{{ s.name }}</td>
+          <td>{{ s.market_coverage | or_na }}</td>
+          <td>{{ s.earliest_date | or_na }}</td>
+          <td>{{ s.latest_date | or_na }}</td>
+          <td class="num">{{ s.record_count if s.record_count is not none else 0 }}</td>
+          <td>{{ s.retrieval_date | or_na }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 style="margin-top:30px">Data quality summary</h2>
+  <div class="report-body">
+    {{ quality_report }}
+  </div>
+</section>
+{% endblock %}

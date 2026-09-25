@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero">
+  <div class="wrap">
+    <h1>Find Commercial {{ trade.short_label or trade.label }} Construction Opportunities Across {{ market.short_name }}</h1>
+    <p class="lede">
+      We turn public construction and permit records into organized project intelligence so
+      commercial {{ trade.label | lower }} teams can identify relevant projects without
+      manually searching thousands of records.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary btn-lg" href="{{ url_for('opportunities') }}">Explore Opportunities</a>
+      <a class="btn btn-outline btn-lg" href="{{ url_for('signup') }}">Create Free Account</a>
+    </div>
+    <p class="hero-note">
+      Every fact on this site comes from a public permit record and links to its source.
+      Permit evidence does not confirm that a project is currently accepting bids, and we do
+      not claim otherwise.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+{# Real counts from the database. Nothing here is estimated or rounded up. #}
+<div class="stat-strip">
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span>
+    <span class="stat-label">Commercial projects</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span>
+    <span class="stat-label">With mechanical evidence</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span>
+    <span class="stat-label">Mechanical permit on file</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.cities) }}</span>
+    <span class="stat-label">Cities covered</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ "{:,}".format(stats.permit_records) }}</span>
+    <span class="stat-label">Permit records processed</span>
+  </div>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>What the product does</h2>
+    <p>Six things, each grounded in a public record rather than an estimate.</p>
+  </div>
+  <div class="card-grid">
+    <article class="card">
+      <h3>Commercial project discovery</h3>
+      <p>Individual permits are assembled into the underlying commercial projects, so you see
+        one project rather than eighteen separate trade permits.</p>
+    </article>
+    <article class="card">
+      <h3>Mechanical / HVAC evidence</h3>
+      <p>Each project states exactly what triggered its mechanical classification: a mechanical
+        permit filed at the address, or mechanical scope named in the permit text.</p>
+    </article>
+    <article class="card">
+      <h3>Project status</h3>
+      <p>Where the source records a permit status, we show it — plan review, issued, under
+        inspection — and we exclude work that is already finished.</p>
+    </article>
+    <article class="card">
+      <h3>Source verification</h3>
+      <p>Every material fact links back to the public record it came from. If a source does not
+        publish a field, we say <strong>Not verified</strong> rather than filling it in.</p>
+    </article>
+    <article class="card">
+      <h3>Procurement transparency</h3>
+      <p>We state the procurement status plainly. No source in this market publishes bid status,
+        so no project is ever presented as an open bid.</p>
+    </article>
+    <article class="card">
+      <h3>Search and filtering</h3>
+      <p>Filter by city, project type, classification, procurement status and date range, or
+        search by address, project name or permit number.</p>
+    </article>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Recently filed opportunities</h2>
+    <p>
+      Ordered by permit date. There is no "best opportunity" ranking, because that would be a
+      judgement the records do not support.
+    </p>
+  </div>
+  {% if latest %}
+  <div class="card-grid">
+    {% for project in latest %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+  <p style="margin-top:20px">
+    <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Browse all opportunities</a>
+  </p>
+  {% else %}
+    {% with heading = "No opportunities are currently published",
+            message = "The database holds no discoverable commercial projects yet. Run an ingestion and then rebuild the search index.",
+            suggestions = ["Confirm the database path with OPPINTEL_DB", "Run: python -m oppintel.cli ingest", "Run: python -m oppintel.app.main build-search-index"],
+            reset_url = None %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+
+{% if cities %}
+<section class="section">
+  <div class="section-head">
+    <h2>Coverage by city</h2>
+    <p>Counts reflect projects currently held in the database.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>City</th>
+          <th class="num">Projects</th>
+          <th class="num">With mechanical evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for city in cities %}
+        <tr>
+          <td>
+            {% if city.slug %}
+              <a href="{{ url_for('market_child', market_slug=market.slug, slug=city.slug) }}">{{ city.city }}</a>
+            {% else %}
+              {{ city.city }}
+            {% endif %}
+          </td>
+          <td class="num">{{ "{:,}".format(city.n) }}</td>
+          <td class="num">{{ "{:,}".format(city.mech) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if types %}
+<section class="section">
+  <div class="section-head">
+    <h2>By project type</h2>
+    <p>Building classes the market currently holds.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Project type</th><th class="num">Projects</th><th class="num">Classified HIGH</th></tr>
+      </thead>
+      <tbody>
+        {% for t in types %}
+        <tr>
+          <td>
+            <a href="{{ url_for('opportunities', project_type=t.project_type) }}">{{ t.project_type }}</a>
+          </td>
+          <td class="num">{{ "{:,}".format(t.n) }}</td>
+          <td class="num">{{ "{:,}".format(t.high) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="notice">
+    <h3>How to read this data</h3>
+    <p>
+      A mechanical permit on file shows that mechanical work was filed with the City at that
+      address. It is evidence of scope. It is not a guarantee that the work is still available,
+      and it does not indicate who will perform it.
+    </p>
+    <p>
+      Data was last collected in {{ freshness.display }}. Coverage is not complete for every
+      jurisdiction in the market, and some source record types are capped by a pagination
+      safety limit, so some totals are lower bounds.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

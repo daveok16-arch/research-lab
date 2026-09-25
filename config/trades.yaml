@@ -11,7 +11,25 @@
 trades:
   commercial_hvac:
     label: "Commercial HVAC / Mechanical"
+    # URL segment for the public site. Stable once published.
+    slug: commercial-hvac
+    short_label: "HVAC"
     active: true
+    # Which stored field evidences this trade, and which values of it count. Used by the
+    # application layer to scope public discovery to the active trade, so an HVAC directory
+    # cannot list a project with no mechanical activity. The intelligence layer's
+    # classification gates are unaffected by this setting.
+    discovery:
+      evidence_field: mechanical_evidence_tier
+      evidence_values: [1, 2]
+      # The value that denotes the strongest form of evidence for this trade. Used for the
+      # "mechanical permit on file" count, so that statistic is also configuration-driven.
+      strong_evidence_value: 1
+    seo:
+      title: "Commercial HVAC Construction Opportunities"
+      description: >
+        Commercial construction projects across DFW with documented mechanical or HVAC
+        permit evidence, drawn from public City permit records.
     market:
       name: "Dallas-Fort Worth, TX"
       cities:

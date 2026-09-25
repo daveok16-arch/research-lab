@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="detail-head">
+  <p class="crumb">
+    <a href="{{ url_for('home') }}">Home</a> ·
+    <a href="{{ url_for('opportunities') }}">Opportunities</a>
+    {% if project.city %} · <a href="{{ url_for('opportunities', city=project.city) }}">{{ project.city }}</a>{% endif %}
+  </p>
+  <div class="badge-row">
+    <span class="badge badge-{{ project.classification | lower | replace('_','-') }}">
+      {{ project.classification | replace('_',' ') }}
+    </span>
+    <span class="badge badge-evidence">{{ project.evidence_label }}</span>
+    {% if project.procurement_status == 'Closed' %}
+      <span class="badge badge-closed">Closed</span>
+    {% endif %}
+  </div>
+  <h1>{{ project.project_name or project.address or 'Commercial construction project' }}</h1>
+  <p class="muted">
+    {{ project.address | or_na }}{% if project.city %}, {{ project.city }}{% endif %}{% if project.state %}, {{ project.state }}{% endif %}
+    · Last verified {{ project.last_verified | month_year }}
+  </p>
+
+  {# Saving is a POST so a link prefetch or a crawler cannot mutate account state. #}
+  <div class="action-row">
+    {% if current_user %}
+      <form method="post" action="{{ url_for('save_opportunity', project_id=project.id) }}" class="inline-form">
+        {% if is_saved %}
+          <input type="hidden" name="action" value="remove">
+          <button class="btn btn-outline" type="submit">Remove from saved</button>
+        {% else %}
+          <input type="hidden" name="action" value="save">
+          <button class="btn btn-primary" type="submit">Save opportunity</button>
+        {% endif %}
+      </form>
+    {% else %}
+      <a class="btn btn-primary" href="{{ url_for('signin', next=request.path) }}">Sign in to save</a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="detail-grid">
+  <div>
+
+    <div class="detail-panel">
+      <h2>Project</h2>
+      <dl class="facts">
+        <div>
+          <dt>Project name</dt>
+          <dd>{{ project.project_name | or_na }}</dd>
+        </div>
+        <div>
+          <dt>Address</dt>
+          <dd>{{ project.address | or_na }}</dd>
+        </div>
+        <div>
+          <dt>City</dt>
+          <dd>{{ project.city | or_na }}</dd>
+        </div>
+        <div>
+          <dt>Project type</dt>
+          <dd>{{ project.project_type | or_na }}
+            {% if project.field_status.get('project_type') == 'PARTIALLY VERIFIED' %}
+              <span class="src">Supporting source is historical.</span>
+            {% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Construction evidence</h2>
+      <dl class="facts">
+        <div>
+          <dt>Permit number</dt>
+          <dd>{{ project.permit_number | or_na }}</dd>
+        </div>
+        <div>
+          <dt>Permit type</dt>
+          <dd>
+            {% if project.permits %}
+              {{ project.permits[0].permit_type | or_na }}
+            {% else %}
+              Not verified
+            {% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt>Work description</dt>
+          <dd>
+            {% if project.permits and project.permits[0].work_description %}
+              {{ project.permits[0].work_description }}
+            {% else %}
+              {{ project.project_name | or_na }}
+            {% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt>Filing date</dt>
+          <dd>{{ project.permit_date | nice_date }}</dd>
+        </div>
+        <div>
+          <dt>Current status</dt>
+          <dd>{{ project.project_status | or_na }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>HVAC / Mechanical evidence</h2>
+      {% if project.mechanical_evidence_tier == 1 %}
+        <p>
+          <strong>Confirmed mechanical permit.</strong> The building department filed a
+          mechanical permit at this address. This is the strongest available evidence: the City
+          itself recorded mechanical scope.
+        </p>
+      {% elif project.mechanical_evidence_tier == 2 %}
+        <p>
+          <strong>Mechanical scope stated in the permit record.</strong> The recorded work
+          description names mechanical scope. This is documentary evidence from the permit text
+          rather than a separate trade permit.
+        </p>
+      {% else %}
+        <p class="unverified">
+          No mechanical or HVAC evidence is on record for this address.
+        </p>
+      {% endif %}
+
+      {% if project.mechanical_hvac_evidence %}
+        <p class="evidence-quote">{{ project.mechanical_hvac_evidence }}</p>
+      {% endif %}
+      {% if project.mechanical_evidence_tier %}
+        <p class="small muted">
+          This is evidence that mechanical work was filed. It is not confirmation that the work
+          is still available, and it does not identify who will perform it.
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Procurement status</h2>
+      <p><strong>{{ project.procurement_status | or_na }}</strong></p>
+      {% if project.procurement_status == 'Confirmed open' %}
+        <p>A source explicitly advertises this work for bid or award. Confirm deadlines with the
+          issuing body before relying on this.</p>
+      {% elif project.procurement_status == 'Evidence found, status unclear' %}
+        <p>
+          The permit record shows active work ({{ project.project_status | or_na }}), which
+          indicates the project is proceeding. No source states how the work will be procured,
+          so this is not a confirmed open bid.
+        </p>
+      {% elif project.procurement_status == 'Closed' %}
+        <p>
+          The permit record shows this work as finished or inactive. The mechanical scope on
+          record has already been let or completed, and this should not be treated as a live
+          opportunity.
+        </p>
+      {% else %}
+        <p>
+          No source states a procurement status. Treat procurement as unverified. A permit
+          existing does not mean the mechanical scope is still available.
+        </p>
+      {% endif %}
+      <div class="notice notice-warn">
+        <p>Permit evidence does not confirm that the HVAC/mechanical package is currently
+          available for bid.</p>
+      </div>
+    </div>
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Additional project information</h2>
+      <dl class="facts">
+        {% set fields = [
+          ('Value', project.estimated_project_value | money, 'estimated_project_value'),
+          ('Square footage', project.square_footage | sqft, 'square_footage'),
+          ('Owner', project.owner | or_na, 'owner'),
+          ('Developer', project.developer | or_na, 'developer'),
+          ('General contractor', project.general_contractor | or_na, 'general_contractor'),
+          ('Architect', project.architect | or_na, 'architect')
+        ] %}
+        {% for label, value, key in fields %}
+        <div>
+          <dt>{{ label }}</dt>
+          <dd>
+            {% if value == 'Not verified' %}
+              <span class="unverified">Not verified</span>
+            {% else %}
+              {{ value }}
+              <span class="src">Supported by a public source record.</span>
+            {% endif %}
+          </dd>
+        </div>
+        {% endfor %}
+      </dl>
+      <p class="small muted">
+        Fields a source does not publish remain empty in our database and are shown as
+        Not verified. They are never estimated.
+      </p>
+    </div>
+
+    {% if project.sibling and project.sibling.is_grouped %}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Related records</h2>
+      <p>{{ project.sibling.describe() }}</p>
+    </div>
+    {% endif %}
+
+    {% if project.discrepancies %}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Source disagreement</h2>
+      {% for item in project.discrepancies %}
+        <p><strong>{{ item.field_name | replace('_', ' ') | capitalize }}</strong></p>
+        <ul>
+          {% for value in item.values %}
+          <li>{{ value.value }} — per {{ value.source_name }}</li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+      <p class="small muted">
+        These figures come from different publishers. Both are reported rather than reconciled.
+        Confirm with the issuing body before relying on either.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if project.permits | length > 1 %}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Contributing permits</h2>
+      <p class="small muted">
+        This project was assembled from {{ project.permits | length }} permit records at the same
+        address. Each is listed with the status the source recorded.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Permit</th><th>Type</th><th>Date</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {% for p in project.permits %}
+            <tr>
+              <td>{{ p.permit_number }}</td>
+              <td>{{ p.permit_type | or_na }}</td>
+              <td>{{ p.permit_date | nice_date }}</td>
+              <td>{{ p.status | or_na }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <aside>
+    <div class="detail-panel">
+      <h2>Sources</h2>
+      <ul class="source-list">
+        {% for s in project.sources %}
+        <li>
+          <strong>{{ s.source_name }}</strong>
+          <span class="muted small">record {{ s.source_record_key }}</span>
+          {% if s.has_url %}
+            <a class="src-url" href="{{ s.source_url }}" target="_blank" rel="noopener noreferrer nofollow">
+              {{ s.source_url | truncate(72) }}
+            </a>
+          {% else %}
+            <span class="src-url muted">
+              No per-record link is published by this source. The record number identifies it.
+            </span>
+          {% endif %}
+          {% if s.source_date %}
+            <span class="muted small">source dated {{ s.source_date }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="small muted">
+        Last verified {{ project.last_verified | month_year }}.
+      </p>
+    </div>
+
+    {% if related %}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Other {{ project.city }} opportunities</h2>
+      <ul class="related-list">
+        {% for r in related %}
+        <li>
+          <a href="{{ url_for('opportunity_detail', slug=r.slug) }}">
+            {{ (r.project_name or r.address or 'Commercial project') | truncate(60) }}
+          </a>
+          <span class="muted small">{{ r.project_type | or_na }} · {{ r.procurement_status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Data quality</h2>
+      <p class="small">
+        This record was compiled from public permit data. Missing fields are shown as
+        Not verified rather than estimated.
+      </p>
+      <p class="small muted">
+        Not every jurisdiction in the market is fully covered, and some source record types are
+        capped by a pagination limit.
+      </p>
+    </div>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">Commercial {{ trd.label }} Construction Opportunities</h1>
+    <p class="lede" style="font-size:1rem">
+      Commercial construction projects with documented {{ trd.short_label or trd.label }}
+      evidence across {{ market.name }}.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Explore Opportunities</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span><span class="stat-label">Commercial projects</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span><span class="stat-label">With mechanical evidence</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span><span class="stat-label">Mechanical permit on file</span></div>
+</div>
+
+{% if opportunities %}
+<section class="section">
+  <div class="section-head">
+    <h2>Recent opportunities</h2>
+    <p>Ordered by permit date.</p>
+  </div>
+  <div class="card-grid">
+    {% for project in opportunities %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="notice notice-warn">
+    <p>
+      Permit evidence records that work was filed with the City. It does not confirm that a
+      package is currently available for bid.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

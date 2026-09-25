@@ -60,3 +60,7 @@ def make_permit(**overrides) -> Permit:
     )
     defaults.update(overrides)
     return Permit(**defaults)
+
+# Application-layer fixtures live in conftest_app.py. Registering it as a plugin makes the
+# app fixtures available to every test module without per-module declarations.
+pytest_plugins = ["conftest_app"]

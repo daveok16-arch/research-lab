@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">{{ market.short_name }} Commercial {{ trade.short_label or trade.label }} Opportunities</h1>
+    <p class="lede" style="font-size:1rem">
+      Active commercial construction projects across {{ market.name }} with documented mechanical
+      evidence. Every fact links to its public source.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+{# Filters are a plain GET form, so the directory works without JavaScript. #}
+<form class="filters" method="get" action="{{ url_for('opportunities') }}">
+  <h2>Filter opportunities</h2>
+  <div class="filter-grid">
+    <div class="field">
+      <label for="q">Search</label>
+      <input type="search" id="q" name="q" value="{{ filters.q or '' }}"
+             placeholder="Project, address, permit number">
+    </div>
+    <div class="field">
+      <label for="city">City</label>
+      <select id="city" name="city">
+        <option value="">All cities</option>
+        {% for c in cities %}
+        <option value="{{ c }}" {% if filters.city == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="project_type">Project type</label>
+      <select id="project_type" name="project_type">
+        <option value="">All types</option>
+        {% for t in project_types %}
+        <option value="{{ t }}" {% if filters.project_type == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="classification">Classification</label>
+      <select id="classification" name="classification">
+        <option value="">All classifications</option>
+        <option value="HIGH" {% if filters.classification == 'HIGH' %}selected{% endif %}>HIGH</option>
+        <option value="MEDIUM" {% if filters.classification == 'MEDIUM' %}selected{% endif %}>MEDIUM</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="procurement_status">Procurement status</label>
+      <select id="procurement_status" name="procurement_status">
+        <option value="">All statuses</option>
+        {% for s in procurement_options %}
+        <option value="{{ s }}" {% if filters.procurement_status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="date_from">Permit date from</label>
+      <input type="date" id="date_from" name="date_from" value="{{ filters.date_from or '' }}">
+    </div>
+    <div class="field">
+      <label for="date_to">Permit date to</label>
+      <input type="date" id="date_to" name="date_to" value="{{ filters.date_to or '' }}">
+    </div>
+    <div class="field">
+      <label for="sort">Sort by</label>
+      <select id="sort" name="sort">
+        {% for key, meta in sort_options.items() %}
+        <option value="{{ key }}" {% if filters.sort == key %}selected{% endif %}>{{ meta[0] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="filter-actions">
+    <button class="btn btn-primary" type="submit">Apply filters</button>
+    <a class="btn btn-outline" href="{{ url_for('opportunities') }}">Clear</a>
+    <label class="checkline">
+      <input type="checkbox" name="include_unverified" value="1"
+             {% if filters.include_unverified %}checked{% endif %}>
+      Include records without mechanical evidence
+    </label>
+  </div>
+</form>
+
+<div class="result-head">
+  <p class="result-count">
+    {% if result.total %}
+      Showing {{ result.first_index }}–{{ result.last_index }} of {{ result.total }} opportunities
+    {% else %}
+      No opportunities matched
+    {% endif %}
+  </p>
+</div>
+
+{% if result.items %}
+  <div class="card-grid">
+    {% for project in result.items %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+  {% include "partials/pagination.html" %}
+{% else %}
+  {% with heading = "No matching opportunities",
+          message = "Nothing in the current data matched those filters.",
+          suggestions = ["Try expanding your date range or selecting another project type.",
+                         "Clear the city filter to search the whole market.",
+                         "Records appear here only when they carry documented mechanical evidence."],
+          reset_url = url_for('opportunities') %}
+    {% include "partials/empty_state.html" %}
+  {% endwith %}
+{% endif %}
+
+<section class="section">
+  <div class="notice notice-plain">
+    <h4>About this directory</h4>
+    <p>
+      Listings include projects classified HIGH or MEDIUM with a mechanical or HVAC evidence
+      tier. Work recorded as finished or inactive is excluded from discovery, and can still be
+      reached by its direct link, where its status is shown.
+    </p>
+    <p>
+      Results are ordered by a factual key only — permit date, update time or project status.
+      There is no subjective "best opportunity" ranking.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

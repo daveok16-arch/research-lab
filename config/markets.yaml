@@ -1,0 +1,93 @@
+# Market configuration.
+#
+# A market is a geographic grouping of cities that share sources and a trade profile.
+# DFW is the first market, but nothing in the application hardcodes it: the active market is
+# resolved from this file, so adding Houston or Austin is a configuration change plus whatever
+# connectors those sources need.
+#
+# `slug` is the URL segment used by the public site, so it must be stable once published.
+
+defaults:
+  # The market the application serves by default. Referenced by id.
+  active_market: dfw
+
+markets:
+  - id: dfw
+    slug: dfw
+    name: "Dallas–Fort Worth"
+    short_name: "DFW"
+    state: TX
+    active: true
+    # The trade profiles available in this market. Must match ids in trades.yaml.
+    trades:
+      - commercial_hvac
+    # Cities covered, used for filters, landing pages and statistics. `slug` is the URL
+    # segment; `name` is what the permit sources actually record, so it is used for matching.
+    cities:
+      - {slug: dallas, name: "Dallas"}
+      - {slug: fort-worth, name: "Fort Worth"}
+      - {slug: plano, name: "Plano"}
+      - {slug: frisco, name: "Frisco"}
+      - {slug: mckinney, name: "McKinney"}
+      - {slug: allen, name: "Allen"}
+      - {slug: wylie, name: "Wylie"}
+      - {slug: celina, name: "Celina"}
+      - {slug: prosper, name: "Prosper"}
+      - {slug: melissa, name: "Melissa"}
+      - {slug: anna, name: "Anna"}
+      - {slug: princeton, name: "Princeton"}
+      - {slug: lavon, name: "Lavon"}
+      - {slug: murphy, name: "Murphy"}
+      - {slug: richardson, name: "Richardson"}
+      - {slug: royse-city, name: "Royse City"}
+      - {slug: farmersville, name: "Farmersville"}
+      - {slug: lucas, name: "Lucas"}
+    # Landing pages that are worth indexing. Kept explicit rather than generated for every
+    # filter combination, because thin near-duplicate pages hurt rather than help SEO.
+    landing_pages:
+      - {slug: dallas, city: "Dallas"}
+      - {slug: fort-worth, city: "Fort Worth"}
+    # Sources feeding this market, by id from sources.yaml.
+    sources:
+      - dallas_accela_permits
+      - fort_worth_permits
+      - collin_cad_permits
+      - dallas_gis_permits
+      - dallas_permits_socrata
+    seo:
+      title: "DFW Commercial HVAC Construction Opportunities"
+      description: >
+        Public construction and permit intelligence for commercial HVAC and mechanical
+        contractors across Dallas–Fort Worth.
+
+  # Placeholder markets. Present so the architecture is exercised by tests and so adding a
+  # market is obviously a configuration change. Marked inactive and deliberately not ingested.
+  - id: houston
+    slug: houston
+    name: "Greater Houston"
+    short_name: "Houston"
+    state: TX
+    active: false
+    trades: [commercial_hvac]
+    cities:
+      - {slug: houston, name: "Houston"}
+    landing_pages: []
+    sources: []
+    seo:
+      title: "Houston Commercial HVAC Construction Opportunities"
+      description: "Planned market. Not yet ingested."
+
+  - id: austin
+    slug: austin
+    name: "Austin"
+    short_name: "Austin"
+    state: TX
+    active: false
+    trades: [commercial_hvac]
+    cities:
+      - {slug: austin, name: "Austin"}
+    landing_pages: []
+    sources: []
+    seo:
+      title: "Austin Commercial HVAC Construction Opportunities"
+      description: "Planned market. Not yet ingested."

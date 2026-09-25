@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="section-head">
+    <h2>Saved opportunities</h2>
+    <p>
+      Saved records reference the underlying project, so they always reflect the latest
+      verified data rather than a snapshot taken when you saved it.
+    </p>
+  </div>
+
+  {% if items %}
+  <div class="card-grid">
+    {% for project in items %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+  {% else %}
+    {% with heading = "You have not saved any opportunities yet",
+            message = "Open an opportunity and use Save opportunity to keep it here.",
+            suggestions = ["Browse the directory to find opportunities in your market.",
+                           "Use filters to narrow by city, project type and status."],
+            reset_url = url_for('opportunities') %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+{% endblock %}

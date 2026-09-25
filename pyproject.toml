@@ -15,9 +15,11 @@ dependencies = [
 [project.optional-dependencies]
 web = ["Flask>=3.0"]
 dev = ["pytest>=7.4"]
+prod = ["gunicorn>=21.2"]
 
 [project.scripts]
 oppintel = "oppintel.cli:main"
+oppintel-web = "oppintel.app.wsgi:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

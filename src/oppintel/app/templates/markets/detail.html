@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">{{ mkt.name }} Commercial Construction Opportunities</h1>
+    <p class="lede" style="font-size:1rem">
+      Commercial construction projects across {{ mkt.name }} with documented mechanical
+      evidence, compiled from public City permit records.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{ url_for('opportunities', city=(mkt.cities[0].name if mkt.cities else None)) }}">
+        Explore {{ mkt.short_name }} Opportunities
+      </a>
+      {% for t in all_trades if t.active and t.id in mkt.trades %}
+      <a class="btn btn-outline" href="{{ url_for('market_child', market_slug=mkt.slug, slug=(t.slug or t.id)) }}">
+        {{ t.label }} opportunities
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span><span class="stat-label">Commercial projects</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span><span class="stat-label">With mechanical evidence</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span><span class="stat-label">Mechanical permit on file</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.cities) }}</span><span class="stat-label">Cities covered</span></div>
+</div>
+
+{% if opportunities %}
+<section class="section">
+  <div class="section-head">
+    <h2>Recent opportunities in {{ mkt.short_name }}</h2>
+    <p>Ordered by permit date.</p>
+  </div>
+  <div class="card-grid">
+    {% for project in opportunities %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+  <p style="margin-top:20px">
+    <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Browse all {{ mkt.short_name }} opportunities</a>
+  </p>
+</section>
+{% else %}
+  {% with heading = "No opportunities published for this market yet",
+          message = "This market is configured but holds no discoverable projects.",
+          suggestions = ["Run an ingestion for this market's sources.", "Rebuild the search index afterwards."],
+          reset_url = url_for('markets_index') %}
+    {% include "partials/empty_state.html" %}
+  {% endwith %}
+{% endif %}
+
+{% if cities %}
+<section class="section">
+  <div class="section-head">
+    <h2>Cities in {{ mkt.name }}</h2>
+    <p>Counts reflect projects currently held in the database.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>City</th><th class="num">Projects</th><th class="num">With mechanical evidence</th></tr></thead>
+      <tbody>
+        {% for city in cities %}
+        <tr>
+          <td>
+            {% if city.slug and city.slug in mkt.landing_pages | map(attribute='slug') | list %}
+              <a href="{{ url_for('market_child', market_slug=mkt.slug, slug=city.slug) }}">{{ city.city }}</a>
+            {% else %}
+              <a href="{{ url_for('opportunities', city=city.city) }}">{{ city.city }}</a>
+            {% endif %}
+          </td>
+          <td class="num">{{ "{:,}".format(city.n) }}</td>
+          <td class="num">{{ "{:,}".format(city.mech) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="notice notice-plain">
+    <h4>Coverage note</h4>
+    <p>
+      This market covers {{ mkt.cities | length }} configured cities. Coverage is not complete
+      for every jurisdiction, and some source record types are capped by a pagination safety
+      limit, so some totals are lower bounds rather than complete counts.
+    </p>
+  </div>
+</section>
+
+{% endblock %}

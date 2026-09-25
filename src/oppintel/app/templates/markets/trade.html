@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero" style="padding:30px 0 26px">
+  <div class="wrap">
+    <h1 style="font-size:1.6rem">{{ mkt.short_name }} Commercial {{ trd.short_label or trd.label }} Construction Opportunities</h1>
+    <p class="lede" style="font-size:1rem">
+      Commercial construction projects across {{ mkt.name }} with documented mechanical evidence.
+      Every fact links to the public record it came from.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Explore {{ mkt.short_name }} Opportunities</a>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.projects_public) }}</span><span class="stat-label">Commercial projects</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.with_mechanical) }}</span><span class="stat-label">With mechanical evidence</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.tier1) }}</span><span class="stat-label">Mechanical permit on file</span></div>
+  <div class="stat"><span class="stat-value">{{ "{:,}".format(stats.cities) }}</span><span class="stat-label">Cities covered</span></div>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>What counts as {{ trd.label | lower }} evidence</h2>
+    <p>Two tiers, both drawn from public permit records.</p>
+  </div>
+  <div class="card-grid">
+    <article class="card">
+      <h3>Tier 1 — mechanical permit on file</h3>
+      <p>The building department filed a mechanical permit at the address. This is the
+        strongest available evidence, because the City itself recorded mechanical scope.</p>
+    </article>
+    <article class="card">
+      <h3>Tier 2 — mechanical scope in the permit text</h3>
+      <p>The recorded work description names mechanical scope. This is documentary evidence
+        from the permit text rather than a separate trade permit.</p>
+    </article>
+  </div>
+</section>
+
+{% if result.items %}
+<section class="section">
+  <div class="section-head">
+    <h2>Recent opportunities</h2>
+    <p>Ordered by permit date.</p>
+  </div>
+  <div class="card-grid">
+    {% for project in result.items %}
+      {% include "partials/opportunity_card.html" %}
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if cities %}
+<section class="section">
+  <div class="section-head">
+    <h2>{{ trd.short_label or trd.label }} opportunities by city</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>City</th><th class="num">Projects</th><th class="num">With mechanical evidence</th></tr></thead>
+      <tbody>
+        {% for city in cities %}
+        <tr>
+          <td><a href="{{ url_for('opportunities', city=city.city) }}">{{ city.city }}</a></td>
+          <td class="num">{{ "{:,}".format(city.n) }}</td>
+          <td class="num">{{ "{:,}".format(city.mech) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="notice notice-warn">
+    <p>
+      A mechanical permit records that mechanical work was filed with the City. It does not
+      confirm that an HVAC or mechanical package is currently available for bid, and no source
+      in this market publishes bid status.
+    </p>
+  </div>
+</section>
+
+{% endblock %}
