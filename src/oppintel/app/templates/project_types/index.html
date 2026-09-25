@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('home') }}">Home</a> · Project types</p>
+    <h1>{{ market.short_name }} commercial project types</h1>
+    <p class="lede">
+      Project types that hold real records in the directory. A page exists here only because the
+      data supports it — nothing is generated speculatively.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+{% if types %}
+<div class="type-grid">
+  {% for row in types %}
+  <a class="type-card" href="{{ url_for('project_type_page', type_slug_value=type_slug(row.project_type)) }}">
+    <h3>{{ row.project_type }}</h3>
+    <p class="type-count">{{ row.n }} opportunit{{ 'y' if row.n == 1 else 'ies' }}</p>
+    {% if row.high %}<p class="muted small">{{ row.high }} classified HIGH</p>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+  {% with heading = "No project types yet",
+          message = "The directory has no classified and discoverable projects, so there are no project-type pages to show.",
+          suggestions = ["Run an ingestion to populate the directory."],
+          reset_url = url_for('opportunities') %}
+    {% include "partials/empty_state.html" %}
+  {% endwith %}
+{% endif %}
+{% endblock %}

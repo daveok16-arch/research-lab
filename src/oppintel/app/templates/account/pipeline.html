@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('dashboard') }}">Dashboard</a> · My Pipeline</p>
+    <h1>My Pipeline</h1>
+    <p class="lede">
+      Where you are with each opportunity. A stage is <strong>your own working label</strong>
+      for a project — it is not the project's procurement status, and it does not mean anyone
+      is officially seeking bids.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+<div class="notice notice-plain">
+  <h4>Two different vocabularies</h4>
+  <p class="small">
+    <strong>Your pipeline</strong> is what you are doing about a project: New, Reviewing,
+    Target, Contacted, Pursuing, Closed. <strong>Procurement status</strong> is what the
+    sources state, and it is shown on each project as
+    <em>Bid status not verified</em> unless a source explicitly advertises a bid.
+  </p>
+</div>
+
+{% if total %}
+<div class="pipeline-board">
+  {% for column in columns %}
+  <section class="pipeline-column" id="stage-{{ column.key }}">
+    <header>
+      <h2>{{ column.label }}</h2>
+      <span class="stage-count">{{ column.entries | length }}</span>
+    </header>
+    {% if column.entries %}
+      {% for project in column.entries %}
+      <article class="pipeline-card">
+        <a class="pipeline-title" href="{{ url_for('opportunity_detail', slug=project.slug) }}">
+          {{ (project.project_name or project.address or 'Commercial project') | truncate(52) }}
+        </a>
+        <p class="muted small">{{ project.city | or_na }} · {{ project.classification | replace('_',' ') | title }}</p>
+        {% if project.follow_up_date %}
+          <p class="small">Follow up {{ project.follow_up_date }}</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('pipeline_update', project_id=project.id) }}" class="inline-form">
+          {% include "partials/csrf.html" %}
+          <label class="visually-hidden" for="stage-{{ project.id }}">Stage</label>
+          <select id="stage-{{ project.id }}" name="stage" class="select-small">
+            {% for key, label in stages %}
+              <option value="{{ key }}" {% if project.stage == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-small btn-outline" type="submit">Move</button>
+        </form>
+        <form method="post" action="{{ url_for('pipeline_update', project_id=project.id) }}" class="inline-form">
+          {% include "partials/csrf.html" %}
+          <input type="hidden" name="action" value="remove">
+          <button class="btn btn-small btn-ghost" type="submit">Remove</button>
+        </form>
+      </article>
+      {% endfor %}
+    {% else %}
+      <p class="muted small">Nothing in this stage.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+  {% with heading = "Your pipeline is empty",
+          message = "A pipeline helps you track which opportunities you are reviewing, pursuing and have closed out. Nothing here is filled in for you.",
+          suggestions = ["Open an opportunity and add it to a stage.",
+                           "You can also move items by choosing a stage on this page."],
+          reset_url = url_for('opportunities') %}
+    {% include "partials/empty_state.html" %}
+  {% endwith %}
+{% endif %}
+{% endblock %}

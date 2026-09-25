@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb">
+      <a href="{{ url_for('home') }}">Home</a> ·
+      <a href="{{ url_for('project_types_index') }}">Project types</a> ·
+      {{ project_type }}
+    </p>
+    <h1>{{ project_type }} construction opportunities in {{ market.short_name }}</h1>
+    <p class="lede">
+      {{ stats.projects_public }} active {{ project_type | lower }} projects with documented
+      mechanical evidence, drawn from public permit records. Every fact links to its source.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <div class="stat">
+    <span class="stat-value">{{ stats.projects_public }}</span>
+    <span class="stat-label">Discoverable projects</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ stats.with_mechanical }}</span>
+    <span class="stat-label">With mechanical evidence</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ stats.high }}</span>
+    <span class="stat-label">Classified HIGH</span>
+  </div>
+  <div class="stat">
+    <span class="stat-value">{{ stats.cities }}</span>
+    <span class="stat-label">Cities</span>
+  </div>
+</div>
+
+{% if cities %}
+<div class="section-head">
+  <h2>Where these projects are</h2>
+  <p class="section-sub">Cities holding {{ project_type | lower }} opportunities.</p>
+</div>
+<div class="chip-row">
+  {% for city in cities %}
+    <a class="chip" href="{{ url_for('opportunities', project_type=project_type, city=city.city) }}">
+      {{ city.city }} <span class="chip-count">{{ city.n }}</span>
+    </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Latest {{ project_type | lower }} opportunities</h2>
+  </div>
+  {% if result.items %}
+    <div class="card-grid">
+      {% for project in result.items %}
+        {% include "partials/opportunity_card.html" %}
+      {% endfor %}
+    </div>
+    <p class="center">
+      <a class="btn btn-primary" href="{{ url_for('opportunities', project_type=project_type) }}">
+        See all {{ project_type | lower }} opportunities
+      </a>
+    </p>
+  {% else %}
+    {% with heading = "No " ~ (project_type | lower) ~ " opportunities right now",
+            message = "No discoverable project of this type is currently in the directory.",
+            suggestions = ["Browse all project types for other work.",
+                           "The directory changes as new permits are filed."],
+            reset_url = url_for('opportunities') %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+
+<div class="notice notice-plain">
+  <h4>What this page does not claim</h4>
+  <p class="small">
+    A project appearing here means a public record shows active construction with mechanical
+    evidence. It does not mean the mechanical package is open for bid — no source in this market
+    publishes bid status. Confirm procurement with the parties named on the record.
+  </p>
+</div>
+{% endblock %}

@@ -118,6 +118,20 @@ class MarketConfig:
         return None
 
 
+def type_slug(project_type: str | None) -> str:
+    """A URL slug for a project-type landing page.
+
+    Kept here rather than in the application layer so a page URL and the value it filters on
+    are derived by one rule. Deterministic and lossy on purpose: the slug addresses a page, and
+    the page resolves the name back from the database, so a collision would surface as a page
+    with two names rather than as a silent mis-filter.
+    """
+    if not project_type:
+        return ""
+    lowered = project_type.strip().lower().replace("&", " and ")
+    return re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
+
+
 @dataclass
 class TradeConfig:
     id: str

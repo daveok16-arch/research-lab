@@ -185,3 +185,32 @@ def admin_client(app_db):
     )
     grant_admin(app_db, "operator@example.com")
     return c
+
+
+#: A configuration with the request protections on. Ordinary tests run with them off so they
+#: exercise routes rather than the token plumbing; the security tests build on this fixture so
+#: the protections themselves are verified against a real request.
+@pytest.fixture
+def secured_client(tmp_path):
+    db_path = tmp_path / "secured.db"
+    db = build_database(db_path)
+    db.close()
+    cfg = AppConfig(
+        database_path=db_path, secret_key="test-secret-key", debug=False, csrf_enabled=True
+    )
+    application = create_app(cfg)
+    application.config["TESTING"] = True
+    from oppintel.app.security import limiter
+
+    limiter.reset()
+    return application.test_client()
+
+
+def csrf_from(client, path: str = "/signin") -> str:
+    """Fetch a page and extract its CSRF token, as a browser form post would carry it."""
+    import re
+
+    body = client.get(path).get_data(as_text=True)
+    match = re.search(r'name="_csrf_token" value="([^"]+)"', body)
+    assert match, f"no CSRF token found on {path}"
+    return match.group(1)

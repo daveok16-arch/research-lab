@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('home') }}">Home</a> · Dashboard</p>
+    <h1>Your opportunity workspace</h1>
+    <p class="lede">
+      New matches for your preferences, what changed recently, and the opportunities you are
+      already working. Every figure below is a count of your own stored records.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-strip">
+  <a class="stat" href="{{ url_for('saved') }}">
+    <span class="stat-value">{{ summary.saved }}</span>
+    <span class="stat-label">Saved</span>
+  </a>
+  <a class="stat" href="{{ url_for('watching') }}">
+    <span class="stat-value">{{ summary.watching }}</span>
+    <span class="stat-label">Watching</span>
+  </a>
+  <a class="stat" href="{{ url_for('my_pipeline') }}">
+    <span class="stat-value">{{ summary.pipeline }}</span>
+    <span class="stat-label">In pipeline</span>
+  </a>
+  <div class="stat">
+    <span class="stat-value">{{ summary.notes }}</span>
+    <span class="stat-label">Notes</span>
+  </div>
+  <a class="stat" href="{{ url_for('alerts') }}">
+    <span class="stat-value">{{ unread_alerts }}</span>
+    <span class="stat-label">Unread alerts</span>
+  </a>
+</div>
+
+{% if not prefs.cities and not prefs.project_types and not prefs.min_value and not prefs.max_value %}
+<div class="notice notice-action">
+  <h4>Set your preferences to sharpen this feed</h4>
+  <p>
+    Right now every market-wide opportunity matches you. Choose the cities and project types
+    you actually pursue and the feed will narrow to them.
+  </p>
+  <a class="btn btn-primary" href="{{ url_for('preferences') }}">Set preferences</a>
+</div>
+{% endif %}
+
+{# Each section is a real query. When a section is empty it says so rather than padding. #}
+<section class="section">
+  <div class="section-head">
+    <h2>New opportunities</h2>
+    <p class="section-sub">Recently dated projects matching your preferences.</p>
+  </div>
+  {% if new_matches %}
+    <div class="card-grid">
+      {% for project in new_matches %}
+        {% include "partials/opportunity_card.html" %}
+      {% endfor %}
+    </div>
+  {% else %}
+    {% with heading = "Nothing new matches yet",
+            message = "No recently dated project matches your current preferences.",
+            suggestions = ["Widen your preferences to include more cities or project types.",
+                           "Clear your value range if you set one."],
+            reset_url = url_for('preferences') %}
+      {% include "partials/empty_state.html" %}
+    {% endwith %}
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Recently updated</h2>
+    <p class="section-sub">
+      Projects where the recorded data changed in the last 30 days. A pipeline re-run with no
+      new information does not appear here.
+    </p>
+  </div>
+  {% if recently_updated %}
+    <div class="card-grid">
+      {% for project in recently_updated %}
+        {% include "partials/opportunity_card.html" %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">
+      No recorded changes in the last 30 days. This section fills as new permits are filed and
+      project records are updated.
+    </p>
+  {% endif %}
+</section>
+
+<div class="split-2">
+  <section class="section">
+    <div class="section-head">
+      <h2>Watching</h2>
+      <p class="section-sub">Projects you asked the system to monitor.</p>
+    </div>
+    {% if watching %}
+      <ul class="compact-list">
+        {% for project in watching %}
+        <li>
+          <a href="{{ url_for('opportunity_detail', slug=project.slug) }}">
+            {{ (project.project_name or project.address or 'Commercial project') | truncate(58) }}
+          </a>
+          <span class="muted small">{{ project.city | or_na }} · {{ project.evidence_label }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <a class="link-more" href="{{ url_for('watching') }}">View all watching →</a>
+    {% else %}
+      <p class="muted small">
+        You are not watching anything yet. Watching asks the system to tell you when a project
+        changes.
+      </p>
+    {% endif %}
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>Needs review</h2>
+      <p class="section-sub">In your pipeline, still at the entry stage.</p>
+    </div>
+    {% if needs_review %}
+      <ul class="compact-list">
+        {% for project in needs_review %}
+        <li>
+          <a href="{{ url_for('opportunity_detail', slug=project.slug) }}">
+            {{ (project.project_name or project.address or 'Commercial project') | truncate(58) }}
+          </a>
+          <span class="muted small">{{ project.classification | replace('_',' ') | title }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <a class="link-more" href="{{ url_for('my_pipeline') }}">Open pipeline →</a>
+    {% else %}
+      <p class="muted small">Nothing is waiting at the entry stage of your pipeline.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="section">
+  <div class="section-head">
+    <h2>My pipeline</h2>
+    <p class="section-sub">
+      Your working state for each opportunity. A stage is your own label for where you are with
+      a project; it is not the project's procurement status.
+    </p>
+  </div>
+  <div class="stage-strip">
+    {% for key, label in stages %}
+      <a class="stage-chip" href="{{ url_for('my_pipeline') }}#stage-{{ key }}">
+        <span class="stage-count">{{ summary.stages.get(key, 0) }}</span>
+        <span class="stage-name">{{ label }}</span>
+      </a>
+    {% endfor %}
+  </div>
+  {% if pipeline_projects %}
+    <div class="card-grid">
+      {% for project in pipeline_projects %}
+        {% include "partials/opportunity_card.html" %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">
+      Your pipeline is empty. Open any opportunity and choose a stage to start tracking it.
+    </p>
+  {% endif %}
+</section>
+
+{% endblock %}

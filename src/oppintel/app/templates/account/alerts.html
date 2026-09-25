@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('dashboard') }}">Dashboard</a> · Alerts</p>
+    <h1>Alerts</h1>
+    <p class="lede">
+      Every alert below is caused by a change the system actually detected in a record you
+      watch. There are no scheduled or synthetic notifications, so an empty list means nothing
+      has changed.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+<div class="result-head">
+  <p class="result-count">
+    {{ unread_count }} unread
+    {% if unread_only %}
+      · showing unread only · <a href="{{ url_for('alerts') }}">show all</a>
+    {% else %}
+      · <a href="{{ url_for('alerts', unread='1') }}">show unread only</a>
+    {% endif %}
+  </p>
+  {% if items %}
+  <form method="post" action="{{ url_for('mark_all_alerts_read') }}" class="inline-form">
+    {% include "partials/csrf.html" %}
+    <button class="btn btn-small btn-outline" type="submit">Mark all read</button>
+  </form>
+  {% endif %}
+</div>
+
+{% if items %}
+<div class="alert-list">
+  {% for alert in items %}
+  <article class="alert-item {{ 'alert-unread' if not alert.read_at else '' }}">
+    <div class="alert-head">
+      <span class="badge badge-plain">{{ alert.title }}</span>
+      {% if not alert.read_at %}<span class="badge badge-change">New</span>{% endif %}
+      <span class="muted small">{{ alert.created_at[:10] }}</span>
+    </div>
+    <h3>
+      {% if alert.slug %}
+        <a href="{{ url_for('opportunity_detail', slug=alert.slug) }}">
+          {{ (alert.project_name or alert.address or 'Project') | truncate(70) }}
+        </a>
+      {% else %}
+        {{ (alert.project_name or alert.address or 'Project') | truncate(70) }}
+      {% endif %}
+    </h3>
+    <p>{{ alert.body | or_na }}</p>
+    {# What changed, stated from the recorded before/after values rather than a summary. #}
+    {% if alert.previous_value or alert.current_value %}
+    <dl class="facts facts-inline">
+      <div><dt>Previous</dt><dd>{{ alert.previous_value | or_na }}</dd></div>
+      <div><dt>Current</dt><dd>{{ alert.current_value | or_na }}</dd></div>
+      {% if alert.source_name %}
+      <div>
+        <dt>Source</dt>
+        <dd>
+          {% if alert.source_url %}
+            <a href="{{ alert.source_url }}" target="_blank" rel="noopener noreferrer nofollow">
+              {{ alert.source_name }}
+            </a>
+          {% else %}
+            {{ alert.source_name }}
+          {% endif %}
+        </dd>
+      </div>
+      {% endif %}
+    </dl>
+    {% endif %}
+    {% if not alert.read_at %}
+    <form method="post" action="{{ url_for('mark_alert_read', alert_id=alert.id) }}" class="inline-form">
+      {% include "partials/csrf.html" %}
+      <button class="btn btn-small btn-ghost" type="submit">Mark read</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+  {% with heading = "No alerts",
+          message = "Alerts appear when a project you watch changes. Nothing has changed yet.",
+          suggestions = ["Watch opportunities you care about to receive alerts about them.",
+                           "Alerts are driven by recorded changes, so they are never invented."],
+          reset_url = url_for('watching') %}
+    {% include "partials/empty_state.html" %}
+  {% endwith %}
+{% endif %}
+{% endblock %}

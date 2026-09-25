@@ -244,21 +244,203 @@ CREATE TABLE IF NOT EXISTS user_preference (
     project_types      TEXT,
     notify_in_app      INTEGER NOT NULL DEFAULT 1,
     notify_email       INTEGER NOT NULL DEFAULT 0,
+    min_value          REAL,
+    max_value          REAL,
     updated_at         TEXT NOT NULL
 );
 
--- Alert architecture only. A matching event is recorded; delivery is a later concern.
-CREATE TABLE IF NOT EXISTS alert_event (
+-- =====================================================================
+-- Change detection and monitoring
+-- =====================================================================
+
+-- One row per *detected difference* between two consecutive assembly passes. Written only
+-- when a tracked field actually changed value, so the timeline is a record of real events
+-- rather than a log of every pipeline run. `previous_value` and `current_value` are stored
+-- verbatim so the product can state exactly what changed without recomputing it.
+CREATE TABLE IF NOT EXISTS project_change (
+    id                 INTEGER PRIMARY KEY,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    field_name         TEXT NOT NULL,
+    previous_value     TEXT,
+    current_value      TEXT,
+    change_kind        TEXT NOT NULL,
+    summary            TEXT NOT NULL,
+    source_id          TEXT,
+    source_name        TEXT,
+    source_url         TEXT,
+    detected_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_change_project ON project_change(project_id, detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_change_detected ON project_change(detected_at DESC);
+
+-- The previous state of a project, used to diff the next assembly pass against. Kept apart
+-- from `project` so the intelligence table itself carries no monitoring bookkeeping.
+CREATE TABLE IF NOT EXISTS project_state_snapshot (
+    project_id         INTEGER PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+    state_hash         TEXT NOT NULL,
+    tracked_values     TEXT NOT NULL,
+    captured_at        TEXT NOT NULL
+);
+
+-- An opportunity the user has asked the system to monitor. Distinct from a save: a save
+-- bookmarks a record, a watch asks for the record to be re-checked for meaningful change.
+CREATE TABLE IF NOT EXISTS watched_opportunity (
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    watched_at         TEXT NOT NULL,
+    last_seen_change_id INTEGER,
+    PRIMARY KEY (user_id, project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watched_user ON watched_opportunity(user_id, watched_at DESC);
+
+-- The user's own workflow state for an opportunity. This is explicitly *not* a statement
+-- about the project's procurement status; the vocabulary is kept apart from
+-- `project.procurement_status` so the two can never be read as the same thing.
+CREATE TABLE IF NOT EXISTS pipeline_entry (
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    stage              TEXT NOT NULL,
+    follow_up_date     TEXT,
+    assigned_to        INTEGER REFERENCES app_user(id) ON DELETE SET NULL,
+    updated_at         TEXT NOT NULL,
+    PRIMARY KEY (user_id, project_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_user ON pipeline_entry(user_id, stage, updated_at DESC);
+
+-- Free-text notes a user keeps against an opportunity. User-authored, never merged into the
+-- intelligence record and never shown to another account.
+CREATE TABLE IF NOT EXISTS opportunity_note (
     id                 INTEGER PRIMARY KEY,
     user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
     project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
-    kind               TEXT NOT NULL,
-    created_at         TEXT NOT NULL,
-    read_at            TEXT,
-    UNIQUE (user_id, project_id, kind)
+    body               TEXT NOT NULL,
+    created_at         TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_user ON alert_event(user_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_note_user ON opportunity_note(user_id, project_id, created_at DESC);
+
+-- User-applied tags. A tag is the user's own label, so it is stored per user and never
+-- treated as a fact about the project.
+CREATE TABLE IF NOT EXISTS opportunity_tag (
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    tag                TEXT NOT NULL,
+    created_at         TEXT NOT NULL,
+    PRIMARY KEY (user_id, project_id, tag)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tag_user ON opportunity_tag(user_id, tag);
+
+-- Per-user activity history over an opportunity: when it was saved, watched, moved, noted.
+-- Distinct from `project_change`, which records what the *source data* did.
+CREATE TABLE IF NOT EXISTS user_activity (
+    id                 INTEGER PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+    action             TEXT NOT NULL,
+    detail             TEXT,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_user ON user_activity(user_id, created_at DESC);
+
+-- Covering indexes for the directory's hot predicates. The public listing always filters on
+-- classification and procurement together and orders by permit date, so a composite index lets
+-- SQLite satisfy the filter and the order from one structure instead of a scan plus a sort.
+CREATE INDEX IF NOT EXISTS idx_project_public_listing
+    ON project(classification, procurement_status, permit_date DESC);
+CREATE INDEX IF NOT EXISTS idx_project_public_updated
+    ON project(classification, procurement_status, updated_at DESC);
+-- Supports the value-band filter and the type landing pages without a full scan.
+CREATE INDEX IF NOT EXISTS idx_project_type_public
+    ON project(project_type, classification, procurement_status);
+
+-- =====================================================================
+-- Organizations and entitlement
+-- =====================================================================
+
+-- An organization groups accounts that share work. Membership is the only way one account
+-- sees another's private records, and it is granted explicitly rather than inferred.
+CREATE TABLE IF NOT EXISTS organization (
+    id                 INTEGER PRIMARY KEY,
+    name               TEXT NOT NULL,
+    slug               TEXT NOT NULL UNIQUE,
+    created_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS organization_member (
+    org_id             INTEGER NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    role               TEXT NOT NULL DEFAULT 'MEMBER',
+    created_at         TEXT NOT NULL,
+    PRIMARY KEY (org_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_member_user ON organization_member(user_id);
+
+-- Plan definitions. Separated from subscriptions and from entitlements: a plan is a
+-- catalogue entry, a subscription is an account's declared relationship to a plan, and an
+-- entitlement is the set of features that relationship grants. Payment is deliberately not
+-- modelled; `subscription` records a status set by an operator or an external system, and no
+-- code path can mark an account paid without that record existing.
+CREATE TABLE IF NOT EXISTS plan (
+    id                 TEXT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    rank               INTEGER NOT NULL DEFAULT 0,
+    description        TEXT,
+    entitlements       TEXT NOT NULL DEFAULT '[]',
+    updated_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS subscription (
+    user_id            INTEGER PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
+    plan_id            TEXT NOT NULL REFERENCES plan(id),
+    status             TEXT NOT NULL,
+    external_ref       TEXT,
+    started_at         TEXT NOT NULL,
+    renewed_at         TEXT,
+    updated_at         TEXT NOT NULL
+);
+
+-- =====================================================================
+-- Data quality and error visibility
+-- =====================================================================
+
+-- Issues the pipeline observed while ingesting or assembling. Recorded rather than silently
+-- repaired: a missing field stays missing and is reported as missing, never filled with a
+-- plausible-looking value.
+CREATE TABLE IF NOT EXISTS data_quality_issue (
+    id                 INTEGER PRIMARY KEY,
+    issue_type         TEXT NOT NULL,
+    severity           TEXT NOT NULL,
+    source_id          TEXT,
+    project_id         INTEGER REFERENCES project(id) ON DELETE CASCADE,
+    detail             TEXT NOT NULL,
+    detected_at        TEXT NOT NULL,
+    resolved_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_type ON data_quality_issue(issue_type, severity);
+CREATE INDEX IF NOT EXISTS idx_quality_source ON data_quality_issue(source_id);
+
+-- Application-side errors, so a failed request is visible to an operator without reading the
+-- process log. Deliberately carries no user id, no email and no request body.
+CREATE TABLE IF NOT EXISTS app_error (
+    id                 INTEGER PRIMARY KEY,
+    path               TEXT NOT NULL,
+    method             TEXT NOT NULL,
+    status             INTEGER,
+    message            TEXT NOT NULL,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_error_created ON app_error(created_at DESC);
+
+-- Event-driven alerts are created after the application tables are migrated, because an
+-- older deployment may hold a different `alert_event` shape. See `_ensure_alert_event`.
 
 -- Product analytics. Deliberately minimal: an event name, an optional project, and a
 -- timestamp. No IP address, no user agent, no free-text payload.
@@ -300,6 +482,10 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 class Database:
     """Thin wrapper around sqlite3 with the operations the pipeline needs."""
 
@@ -336,7 +522,123 @@ class Database:
         production database that already holds ingested data without altering it.
         """
         self.conn.executescript(APP_SCHEMA)
+        self._migrate_app_tables()
+        self._ensure_alert_event()
         self.conn.commit()
+
+    def _ensure_alert_event(self) -> None:
+        """Create the alert table in its current shape.
+
+        Kept out of `APP_SCHEMA` because an older deployment may already hold `alert_event`
+        with a narrower uniqueness constraint and no `change_id` column. Creating the table and
+        its indexes here, after the migration step has rebuilt any legacy table, means the
+        index statements always apply to the current shape.
+        """
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS alert_event (
+                id                 INTEGER PRIMARY KEY,
+                user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+                project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+                change_id          INTEGER REFERENCES project_change(id) ON DELETE CASCADE,
+                kind               TEXT NOT NULL,
+                title              TEXT NOT NULL DEFAULT '',
+                body               TEXT,
+                created_at         TEXT NOT NULL,
+                read_at            TEXT,
+                email_sent_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_alert_user ON alert_event(user_id, read_at);
+            -- One alert per detected change per user. Partial indexes are used because SQLite
+            -- treats NULLs as distinct, so the change-scoped and match-scoped uniqueness rules
+            -- have to be declared separately.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_change
+                ON alert_event(user_id, change_id, kind) WHERE change_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_match
+                ON alert_event(user_id, project_id, kind) WHERE change_id IS NULL;
+            """
+        )
+
+    def _migrate_app_tables(self) -> None:
+        """Bring an existing application schema forward to the current shape.
+
+        `CREATE TABLE IF NOT EXISTS` does not alter a table that already exists, so a deployed
+        database would otherwise miss a newly added column or keep an outdated constraint. Two
+        kinds of change are handled, both idempotent:
+
+        * A **column addition**, applied with `ALTER TABLE ... ADD COLUMN`, which preserves the
+          existing rows untouched.
+        * A **constraint change**, which SQLite cannot express with `ALTER`, so the table is
+          rebuilt: renamed aside, recreated from the current definition, rows copied, and the
+          old table dropped. This is done inside the caller's transaction so a failure leaves
+          the original table in place.
+        """
+        expected: dict[str, tuple[tuple[str, str], ...]] = {
+            "user_preference": (("min_value", "REAL"), ("max_value", "REAL")),
+        }
+        for table, columns in expected.items():
+            if not self._table_exists(table):
+                continue
+            present = self._columns(table)
+            for name, kind in columns:
+                if name not in present:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+
+        # `alert_event` originally carried a `UNIQUE (user_id, project_id, kind)` constraint,
+        # which would silently drop a second alert of the same kind on one project. The alert
+        # model needs one alert per detected change, so the constraint has to go, and only a
+        # rebuild can remove it.
+        if self._table_exists("alert_event") and "change_id" not in self._columns("alert_event"):
+            self._rebuild_alert_event()
+
+    def _columns(self, table: str) -> set[str]:
+        return {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+
+    def _rebuild_alert_event(self) -> None:
+        """Recreate `alert_event` with the current definition, preserving existing rows.
+
+        Old rows are carried across with a null `change_id`. They remain valid alerts; they
+        simply predate change-linking, which is stated rather than fabricated, so the integrity
+        check that looks for an underlying event treats a null change as the first-match case.
+        """
+        self.conn.execute("ALTER TABLE alert_event RENAME TO alert_event_legacy")
+        self.conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS alert_event (
+                id                 INTEGER PRIMARY KEY,
+                user_id            INTEGER NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+                project_id         INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+                change_id          INTEGER REFERENCES project_change(id) ON DELETE CASCADE,
+                kind               TEXT NOT NULL,
+                title              TEXT NOT NULL DEFAULT '',
+                body               TEXT,
+                created_at         TEXT NOT NULL,
+                read_at            TEXT,
+                email_sent_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_alert_user ON alert_event(user_id, read_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_change
+                ON alert_event(user_id, change_id, kind) WHERE change_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_match
+                ON alert_event(user_id, project_id, kind) WHERE change_id IS NULL;
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT OR IGNORE INTO alert_event (id, user_id, project_id, change_id, kind, title,
+                body, created_at, read_at)
+            SELECT id, user_id, project_id, NULL, kind, kind, NULL, created_at, read_at
+              FROM alert_event_legacy
+            """
+        )
+        self.conn.execute("DROP TABLE alert_event_legacy")
+
+    def _table_exists(self, name: str) -> bool:
+        return bool(
+            self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+            ).fetchone()
+        )
 
     # --- sources and runs -----------------------------------------------------
 
@@ -729,6 +1031,177 @@ class Database:
             ),
         )
         self.conn.commit()
+
+    # --- change detection -----------------------------------------------------
+
+    def has_app_schema(self) -> bool:
+        """Whether the application tables exist.
+
+        The intelligence layer must keep working against a database the web application has
+        never touched, so monitoring and data-quality bookkeeping are skipped rather than
+        required when those tables are absent.
+        """
+        row = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_change'"
+        ).fetchone()
+        return row is not None
+
+    def project_ids(self) -> list[int]:
+        """Every project id, for a monitoring pass over the whole dataset."""
+        return [int(r["id"]) for r in self.conn.execute("SELECT id FROM project ORDER BY id")]
+
+    def project_row(self, project_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM project WHERE id = ?", (project_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def permits_for_project(self, project_id: int) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT pm.*, s.name AS source_display_name
+              FROM permit pm
+              JOIN project_permit pp ON pp.permit_id = pm.id
+              LEFT JOIN source s ON s.id = pm.source_id
+             WHERE pp.project_id = ?
+             ORDER BY pm.permit_date, pm.permit_number
+            """,
+            (project_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def previous_snapshot(self, project_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM project_state_snapshot WHERE project_id = ?", (project_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return json.loads(row["tracked_values"])
+        except (TypeError, ValueError):
+            return None
+
+    def save_snapshot(self, project_id: int, values: dict[str, Any], digest: str) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO project_state_snapshot (project_id, state_hash, tracked_values, captured_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                state_hash = excluded.state_hash,
+                tracked_values = excluded.tracked_values,
+                captured_at = excluded.captured_at
+            """,
+            (project_id, digest, json.dumps(values, sort_keys=True), _utcnow()),
+        )
+
+    def record_changes(self, changes: list[Any]) -> int:
+        """Persist detected changes. Returns the number written.
+
+        A change row is only ever written by the detector, so the table is a record of
+        observed differences and cannot be seeded with invented events.
+        """
+        if not changes:
+            return 0
+        now = _utcnow()
+        for change in changes:
+            self.conn.execute(
+                """
+                INSERT INTO project_change (project_id, field_name, previous_value,
+                    current_value, change_kind, summary, source_id, source_name, source_url,
+                    detected_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    change.project_id, change.field_name,
+                    None if change.previous_value is None else str(change.previous_value),
+                    None if change.current_value is None else str(change.current_value),
+                    change.change_kind, change.summary, change.source_id, change.source_name,
+                    change.source_url, now,
+                ),
+            )
+        self.conn.commit()
+        return len(changes)
+
+    def changes_for_project(self, project_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM project_change
+             WHERE project_id = ?
+             ORDER BY id DESC
+             LIMIT ?
+            """,
+            (project_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def changes_since(self, since_id: int = 0, limit: int = 500) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT c.*, p.project_name, p.address, p.city
+              FROM project_change c
+              JOIN project p ON p.id = c.project_id
+             WHERE c.id > ?
+             ORDER BY c.id
+             LIMIT ?
+            """,
+            (since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- data quality ---------------------------------------------------------
+
+    def record_quality_issue(
+        self, issue_type: str, severity: str, detail: str,
+        *, source_id: str | None = None, project_id: int | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO data_quality_issue (issue_type, severity, source_id, project_id,
+                detail, detected_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (issue_type, severity, source_id, project_id, detail, _utcnow()),
+        )
+
+    def quality_issues(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM data_quality_issue
+             WHERE resolved_at IS NULL
+             ORDER BY
+               CASE severity WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
+               detected_at DESC
+             LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_quality_issues(self, issue_type: str | None = None) -> None:
+        """Retire open issues at the start of a pass so counts reflect the current state."""
+        if issue_type:
+            self.conn.execute(
+                "DELETE FROM data_quality_issue WHERE issue_type = ?", (issue_type,)
+            )
+        else:
+            self.conn.execute("DELETE FROM data_quality_issue")
+        self.conn.commit()
+
+    def record_app_error(self, path: str, method: str, status: int | None, message: str) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO app_error (path, method, status, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (path[:300], method[:10], status, message[:500], _utcnow()),
+        )
+        self.conn.commit()
+
+    def recent_app_errors(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM app_error ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def source_coverage(self) -> list[dict[str, Any]]:
         """Coverage metadata for every source, joined to its human-readable name."""

@@ -54,19 +54,26 @@
     <nav class="site-nav" aria-label="Main">
       <ul>
         <li><a href="{{ url_for('home') }}">Home</a></li>
+        {% if current_user %}<li><a href="{{ url_for('dashboard') }}">Dashboard</a></li>{% endif %}
         <li><a href="{{ url_for('opportunities') }}">Opportunities</a></li>
         <li><a href="{{ url_for('markets_index') }}">Markets</a></li>
         <li><a href="{{ url_for('trades_index') }}">Trades</a></li>
+        {% if current_user %}<li><a href="{{ url_for('my_pipeline') }}">My Pipeline</a></li>{% endif %}
         <li><a href="{{ url_for('how_it_works') }}">How It Works</a></li>
         <li><a href="{{ url_for('reports_index') }}">Reports</a></li>
       </ul>
       <div class="nav-account">
         {% if current_user %}
+          <a class="btn btn-ghost" href="{{ url_for('watching') }}">Watching</a>
+          <a class="btn btn-ghost" href="{{ url_for('alerts') }}">
+            Alerts{% if unread_alerts %} <span class="nav-count">{{ unread_alerts }}</span>{% endif %}
+          </a>
           <a class="btn btn-ghost" href="{{ url_for('saved') }}">
             Saved{% if saved_count %} ({{ saved_count }}){% endif %}
           </a>
           <a class="btn btn-ghost" href="{{ url_for('preferences') }}">Preferences</a>
           <form method="post" action="{{ url_for('signout') }}" class="inline-form">
+            {% include "partials/csrf.html" %}
             <button class="btn btn-outline" type="submit">Sign Out</button>
           </form>
         {% else %}

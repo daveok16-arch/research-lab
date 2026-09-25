@@ -10,6 +10,7 @@
     </p>
     {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
     <form method="post">
+    {% include "partials/csrf.html" %}
       <div class="field">
         <label for="display_name">Name (optional)</label>
         <input type="text" id="display_name" name="display_name" autocomplete="name">

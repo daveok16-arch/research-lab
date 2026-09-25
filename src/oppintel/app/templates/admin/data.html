@@ -44,5 +44,93 @@
   <div class="report-body">
     {{ quality_report }}
   </div>
+
+  <h2 style="margin-top:30px">Monitoring and alerts</h2>
+  <div class="stat-strip">
+    <div class="stat"><span class="stat-value">{{ health.changes_total }}</span><span class="stat-label">Changes recorded</span></div>
+    <div class="stat"><span class="stat-value">{{ health.changes_recent }}</span><span class="stat-label">Changes last 7 days</span></div>
+    <div class="stat"><span class="stat-value">{{ health.watched_total }}</span><span class="stat-label">Watched projects</span></div>
+    <div class="stat"><span class="stat-value">{{ health.pipeline_total }}</span><span class="stat-label">Pipeline entries</span></div>
+    <div class="stat"><span class="stat-value">{{ health.alerts_total }}</span><span class="stat-label">Alerts</span></div>
+    <div class="stat">
+      {# Non-zero would mean an alert with no underlying event, which the product must never
+         produce. Surfaced here so the invariant is observable rather than only asserted. #}
+      <span class="stat-value">{{ health.alerts_orphaned }}</span>
+      <span class="stat-label">Orphaned alerts</span>
+    </div>
+  </div>
+
+  <h2 style="margin-top:30px">Source run health</h2>
+  {% if health.sources %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Source</th><th>Last status</th><th class="num">Fetched</th><th class="num">Landed</th><th class="num">Permits</th><th>Started</th></tr>
+      </thead>
+      <tbody>
+        {% for run in health.sources %}
+        <tr>
+          <td>{{ run.name or run.source_id }}</td>
+          <td>{{ run.status }}</td>
+          <td class="num">{{ run.rows_fetched }}</td>
+          <td class="num">{{ run.rows_landed }}</td>
+          <td class="num">{{ run.permits_created }}</td>
+          <td>{{ run.started_at[:16] | replace('T', ' ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No ingestion run has been recorded yet.</p>
+  {% endif %}
+
+  <h2 style="margin-top:30px">Open data-quality issues</h2>
+  {% if health.quality_issues %}
+    <p class="muted small">
+      {{ health.quality_total }} open issue(s):
+      {% for severity, count in health.quality_by_severity.items() %}
+        {{ count }} {{ severity }}{{ ", " if not loop.last else "" }}
+      {% endfor %}
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Severity</th><th>Type</th><th>Detail</th><th>Detected</th></tr></thead>
+        <tbody>
+          {% for issue in health.quality_issues %}
+          <tr>
+            <td>{{ issue.severity }}</td>
+            <td>{{ issue.issue_type | replace('_', ' ') }}</td>
+            <td>{{ issue.detail }}</td>
+            <td>{{ issue.detected_at[:16] | replace('T', ' ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No open data-quality issues.</p>
+  {% endif %}
+
+  <h2 style="margin-top:30px">Recent application errors</h2>
+  {% if health.recent_errors %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>When</th><th>Method</th><th>Path</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for err in health.recent_errors %}
+          <tr>
+            <td>{{ err.created_at[:16] | replace('T', ' ') }}</td>
+            <td>{{ err.method }}</td>
+            <td>{{ err.path }}</td>
+            <td>{{ err.status | or_na }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No application errors recorded.</p>
+  {% endif %}
 </section>
 {% endblock %}

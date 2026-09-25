@@ -17,7 +17,7 @@ from typing import Any, Callable, Iterator
 
 import yaml
 
-from .assemble import assemble_project, cluster_permits
+from .assemble import assemble_project, cluster_permits, project_key_for
 from .classify import classify
 from .config import CONFIG_DIR, SourceConfig, active_trade, load_sources, load_trades
 from .connectors import build_connector, connector_ids
@@ -171,8 +171,22 @@ class Pipeline:
 
         clusters = cluster_permits(permits, self.trade)
         observed = utcnow()
+        # Monitoring is only possible when the application tables are present. A pure
+        # intelligence database is still assembled and classified; it simply carries no
+        # change history, because there is nowhere to put it.
+        monitor = self.db.has_app_schema()
 
         for address_key, cluster in clusters.items():
+            # Read the previous state before the upsert rewrites the row, so the diff is
+            # against what was actually stored on the last pass.
+            prior_values: dict[str, Any] | None = None
+            if monitor:
+                prior_id = self.db.find_project_id(
+                    project_key_for(address_key, self.trade.id)
+                )
+                if prior_id is not None:
+                    prior_values = self.db.previous_snapshot(prior_id)
+
             project = assemble_project(
                 address_key, cluster, self.trade, self.source_names, observed_at=observed,
             )
@@ -189,12 +203,51 @@ class Pipeline:
                     self.db.link_permit(project_id, pid)
             self.db.record_classification(project_id, project)
 
+            if monitor:
+                self._monitor_project(project_id, prior_values)
+
             report.projects_written += 1
             label = project.classification or "UNCLASSIFIED"
             report.classification_counts[label] = report.classification_counts.get(label, 0) + 1
 
         self.db.commit()
+        if monitor:
+            self._record_quality_issues(permits)
         return report
+
+    def _monitor_project(self, project_id: int, prior_values: dict[str, Any] | None) -> None:
+        """Diff one project against its snapshot and record any real change.
+
+        The snapshot is written before the changes so that a failure while recording an event
+        cannot leave the project marked as already-seen and silently drop the event.
+        """
+        from .changes import diff_project, snapshot_values, state_hash
+
+        row = self.db.project_row(project_id)
+        if row is None:
+            return
+        permits = self.db.permits_for_project(project_id)
+        current = snapshot_values(row, permits)
+        digest = state_hash(current)
+
+        if prior_values is not None and state_hash(prior_values) == digest:
+            # Nothing moved. Writing a snapshot again would be a no-op, so skip the work.
+            return
+
+        changes = diff_project(row, prior_values, permits)
+        self.db.record_changes([c for c in changes if c.is_notifiable or c.change_kind])
+        self.db.save_snapshot(project_id, current, digest)
+
+    def _record_quality_issues(self, permits: list[Any]) -> None:
+        """Record observable data-quality problems for the operations view.
+
+        Only conditions the data itself demonstrates are recorded: a missing value, an
+        implausible date, a permit with no address. Nothing is imputed and nothing is
+        repaired — a missing field is reported as missing, which is the whole point.
+        """
+        from .quality import detect_quality_issues
+
+        detect_quality_issues(self.db, permits)
 
     # --- convenience ----------------------------------------------------------
 

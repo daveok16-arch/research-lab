@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
-from .config import MarketConfig, TradeConfig, load_sources
+from .config import MarketConfig, TradeConfig, load_sources, type_slug
 from .db import Database
 from .eligibility import evaluate
 from .grouping import building_key, group_projects, sibling_info_for
@@ -72,6 +72,17 @@ class OpportunityFilters:
     date_from: str | None = None
     date_to: str | None = None
     include_unverified: bool = False
+    #: Value band, applied to the declared project value. A project with no declared value is
+    #: not excluded by a band, because "we do not know the value" is not "the value is low".
+    min_value: float | None = None
+    max_value: float | None = None
+    #: Structural filters. Each maps to a stored column, never to a derived judgement.
+    mechanical_only: bool = False
+    #: Only records whose stored `updated_at` is within this many days.
+    freshness_days: int | None = None
+    #: Restrict to an explicit id set. Used by the account views (saved, watching, pipeline),
+    #: which resolve their own id list rather than re-implementing a query.
+    project_ids: tuple[int, ...] | None = None
     sort: str = DEFAULT_SORT
     page: int = 1
     page_size: int = PAGE_SIZE
@@ -81,6 +92,34 @@ class OpportunityFilters:
         page = max(1, int(self.page or 1))
         size = int(self.page_size or PAGE_SIZE)
         size = max(1, min(size, MAX_PAGE_SIZE))
+
+        def band(value: float | None) -> float | None:
+            if value is None:
+                return None
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if parsed >= 0 else None
+
+        days = self.freshness_days
+        try:
+            days = int(days) if days is not None else None
+        except (TypeError, ValueError):
+            days = None
+        if days is not None and days <= 0:
+            days = None
+
+        ids: tuple[int, ...] | None = None
+        if self.project_ids is not None:
+            cleaned: list[int] = []
+            for item in self.project_ids:
+                try:
+                    cleaned.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            ids = tuple(sorted(set(cleaned)))
+
         return OpportunityFilters(
             q=(self.q or "").strip() or None,
             city=(self.city or "").strip() or None,
@@ -92,6 +131,11 @@ class OpportunityFilters:
             date_from=(self.date_from or "").strip() or None,
             date_to=(self.date_to or "").strip() or None,
             include_unverified=bool(self.include_unverified),
+            min_value=band(self.min_value),
+            max_value=band(self.max_value),
+            mechanical_only=bool(self.mechanical_only),
+            freshness_days=days,
+            project_ids=ids,
             sort=self.sort if self.sort in SORT_OPTIONS else DEFAULT_SORT,
             page=page,
             page_size=size,
@@ -111,10 +155,16 @@ class OpportunityFilters:
             "procurement_status": self.procurement_status,
             "date_from": self.date_from,
             "date_to": self.date_to,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
             "sort": self.sort if self.sort != DEFAULT_SORT else None,
         }
         if self.include_unverified:
             params["include_unverified"] = "1"
+        if self.mechanical_only:
+            params["mechanical_only"] = "1"
+        if self.freshness_days:
+            params["freshness_days"] = self.freshness_days
         params.update(overrides)
         pairs = [f"{k}={_quote(str(v))}" for k, v in params.items() if v not in (None, "")]
         return "&".join(pairs)
@@ -170,10 +220,17 @@ class OpportunityPage:
 class OpportunityService:
     """Read access to projects, scoped to what may be shown publicly."""
 
-    def __init__(self, db: Database, market: MarketConfig, trade: TradeConfig):
+    def __init__(
+        self, db: Database, market: MarketConfig, trade: TradeConfig,
+        *, viewer_id: int | None = None,
+    ):
         self.db = db
         self.market = market
         self.trade = trade
+        #: The signed-in account, when there is one. Used only to annotate records with that
+        #: account's own relationship to them (saved, watched, pipeline stage). It never
+        #: changes which records are returned, so a signed-in view is not a different dataset.
+        self.viewer_id = viewer_id
 
     # --- filters --------------------------------------------------------------
 
@@ -288,6 +345,34 @@ class OpportunityService:
         if filters.date_to:
             clauses.append("p.permit_date <= ?")
             params.append(filters.date_to)
+        # A value band only excludes records that *declare* a value outside it. A project with
+        # no declared value is left in, because an unknown value is not a low value, and
+        # dropping it would silently hide opportunities the source simply does not price.
+        if filters.min_value is not None:
+            clauses.append("(p.estimated_project_value IS NULL OR p.estimated_project_value >= ?)")
+            params.append(filters.min_value)
+        if filters.max_value is not None:
+            clauses.append("(p.estimated_project_value IS NULL OR p.estimated_project_value <= ?)")
+            params.append(filters.max_value)
+        if filters.mechanical_only:
+            field = (self.trade.discovery or {}).get("evidence_field")
+            if field and re.fullmatch(r"[a-z_]+", str(field)):
+                clauses.append(f"p.{field} IS NOT NULL")
+        if filters.freshness_days:
+            clauses.append("p.updated_at >= ?")
+            params.append(
+                (
+                    datetime.now(timezone.utc)
+                    - timedelta(days=int(filters.freshness_days))
+                ).isoformat()
+            )
+        if filters.project_ids is not None:
+            if not filters.project_ids:
+                clauses.append("1 = 0")
+            else:
+                placeholders = ",".join("?" for _ in filters.project_ids)
+                clauses.append(f"p.id IN ({placeholders})")
+                params.extend(filters.project_ids)
 
         return " AND ".join(clauses), params
 
@@ -341,7 +426,7 @@ class OpportunityService:
             params + [filters.page_size, filters.offset],
         ).fetchall()
 
-        items = self.annotate_siblings([self.decorate(dict(r)) for r in rows])
+        items = self.annotate_viewer(self.annotate_siblings([self.decorate(dict(r)) for r in rows]))
         return OpportunityPage(
             items=items, total=total, page=filters.page, page_size=filters.page_size,
             filters=filters,
@@ -386,6 +471,60 @@ class OpportunityService:
             key = item.get("building_key")
             item["sibling_count"] = max(0, counts.get(key, 1) - 1) if key else 0
             item["shares_building"] = item["sibling_count"] > 0
+        return items
+
+    def annotate_viewer(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Attach the viewer's own relationship to each item, in one query per relation.
+
+        Batched deliberately: annotating per card would issue three queries per row and turn a
+        page of twenty into sixty, which is exactly the kind of cost that makes a product feel
+        slow. With no viewer this is a no-op, so the public directory pays nothing for it.
+        """
+        if not self.viewer_id or not items:
+            return items
+        ids = [int(item["id"]) for item in items if item.get("id") is not None]
+        if not ids:
+            return items
+        placeholders = ",".join("?" for _ in ids)
+
+        saved = {
+            int(r["project_id"])
+            for r in self.db.conn.execute(
+                f"SELECT project_id FROM saved_opportunity "
+                f"WHERE user_id = ? AND project_id IN ({placeholders})",
+                [self.viewer_id] + ids,
+            ).fetchall()
+        }
+        watched = {
+            int(r["project_id"])
+            for r in self.db.conn.execute(
+                f"SELECT project_id FROM watched_opportunity "
+                f"WHERE user_id = ? AND project_id IN ({placeholders})",
+                [self.viewer_id] + ids,
+            ).fetchall()
+        }
+        stages = {
+            int(r["project_id"]): r["stage"]
+            for r in self.db.conn.execute(
+                f"SELECT project_id, stage FROM pipeline_entry "
+                f"WHERE user_id = ? AND project_id IN ({placeholders})",
+                [self.viewer_id] + ids,
+            ).fetchall()
+        }
+        tag_counts: dict[int, int] = {}
+        for r in self.db.conn.execute(
+            f"SELECT project_id, COUNT(*) AS n FROM opportunity_tag "
+            f"WHERE user_id = ? AND project_id IN ({placeholders}) GROUP BY project_id",
+            [self.viewer_id] + ids,
+        ).fetchall():
+            tag_counts[int(r["project_id"])] = int(r["n"])
+
+        for item in items:
+            pid = int(item["id"])
+            item["is_saved"] = pid in saved
+            item["is_watched"] = pid in watched
+            item["stage"] = item.get("stage") or stages.get(pid)
+            item["tag_count"] = tag_counts.get(pid, 0)
         return items
 
     @staticmethod
@@ -443,6 +582,7 @@ class OpportunityService:
         project["field_status"] = self.field_status_for(project)
         project["discrepancies"] = self.discrepancies_for(project)
         project["sibling"] = self.sibling_info_for(project)
+        self.annotate_viewer([project])
         return project
 
     def related_for(self, project: dict[str, Any], limit: int = 4) -> list[dict[str, Any]]:
@@ -702,6 +842,55 @@ class OpportunityService:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def statistics_for_type(self, project_type: str) -> dict[str, Any]:
+        """Counts for one project type, for a project-type landing page.
+
+        Every figure is a count of discoverable rows of that type, so a page is only ever built
+        on data the directory actually holds.
+        """
+        return self.statistics_for(
+            where="p.project_type = ? AND p.classification IN (?, ?) "
+                  "AND p.procurement_status IN (?, ?)",
+            params=[project_type] + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
+        )
+
+    def project_type_slug_map(self) -> dict[str, str]:
+        """Every discoverable project type, mapped to a URL slug.
+
+        Derived from the database rather than a fixed list, so a page exists only for a type
+        that has real records behind it.
+        """
+        slugs: dict[str, str] = {}
+        for row in self.db.conn.execute(
+            """
+            SELECT DISTINCT project_type FROM project
+             WHERE classification IN (?, ?) AND procurement_status IN (?, ?)
+               AND project_type IS NOT NULL
+            """,
+            PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT,
+        ).fetchall():
+            name = row["project_type"]
+            slugs[type_slug(name)] = name
+        return slugs
+
+    def cities_for_type(self, project_type: str, limit: int = 12) -> list[dict[str, Any]]:
+        rows = self.db.conn.execute(
+            """
+            SELECT city, COUNT(*) AS n FROM project
+             WHERE project_type = ? AND classification IN (?, ?)
+               AND procurement_status IN (?, ?) AND city IS NOT NULL
+             GROUP BY city ORDER BY n DESC, city LIMIT ?
+            """,
+            [project_type] + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT)
+            + [limit],
+        ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["slug"] = self.market.city_slug(item["city"])
+            out.append(item)
+        return out
+
     def data_freshness(self) -> dict[str, Any]:
         """When the underlying data was last collected.
 
@@ -747,6 +936,128 @@ class OpportunityService:
                 (user_id, project_id),
             ).fetchone()
         )
+
+    # --- account-scoped reads -------------------------------------------------
+
+    def projects_by_ids(self, project_ids: list[int]) -> list[dict[str, Any]]:
+        """Load a set of projects by id, preserving the caller's order.
+
+        Used by the account views, which already hold an ordered id list (most recently saved,
+        watched or moved) and must not have that order re-sorted by a query. Only discoverable
+        records are returned; a closed or unverified project stays out of a working list, and
+        the caller is not told why, because the account view is not a moderation surface.
+        """
+        if not project_ids:
+            return []
+        ordered = [int(i) for i in project_ids]
+        placeholders = ",".join("?" for _ in ordered)
+        rows = self.db.conn.execute(
+            f"""
+            SELECT p.*, s.slug
+              FROM project p
+              LEFT JOIN project_slug s ON s.project_id = p.id
+             WHERE p.id IN ({placeholders})
+               AND p.classification IN (?, ?)
+               AND p.procurement_status IN (?, ?)
+            """,
+            ordered + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
+        ).fetchall()
+        by_id = {int(r["id"]): self.decorate(dict(r)) for r in rows}
+        ordered_items = [by_id[i] for i in ordered if i in by_id]
+        return self.annotate_viewer(self.annotate_siblings(ordered_items))
+
+    def projects_for_slugs(self, slugs: list[str]) -> list[dict[str, Any]]:
+        """Load projects by slug, preserving order and skipping unknown or non-public slugs."""
+        if not slugs:
+            return []
+        placeholders = ",".join("?" for _ in slugs)
+        rows = self.db.conn.execute(
+            f"""
+            SELECT p.*, s.slug
+              FROM project p
+              JOIN project_slug s ON s.project_id = p.id
+             WHERE s.slug IN ({placeholders})
+               AND p.classification IN (?, ?)
+               AND p.procurement_status IN (?, ?)
+            """,
+            list(slugs) + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
+        ).fetchall()
+        by_slug = {r["slug"]: self.decorate(dict(r)) for r in rows}
+        return [by_slug[s] for s in slugs if s in by_slug]
+
+    # --- monitoring -----------------------------------------------------------
+
+    def changes_for(self, project_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        """Recorded changes for one project, newest first.
+
+        Read straight from the change table, so the timeline shows only events the detector
+        actually observed. A project with no changes has an empty timeline and the page says so
+        rather than inventing an initial event.
+        """
+        return self.db.changes_for_project(project_id, limit=limit)
+
+    def recent_changes(self, *, limit: int = 20, days: int = 30) -> list[dict[str, Any]]:
+        """Changes across all public projects in the recent window.
+
+        Restricted to projects that are publicly discoverable, so the "recently updated"
+        section cannot surface a project the directory itself withholds.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self.db.conn.execute(
+            """
+            SELECT c.*, s.slug, p.project_name, p.address, p.city, p.classification,
+                   p.procurement_status
+              FROM project_change c
+              JOIN project p ON p.id = c.project_id
+              LEFT JOIN project_slug s ON s.project_id = p.id
+             WHERE c.detected_at >= ?
+               AND p.classification IN (?, ?)
+               AND p.procurement_status IN (?, ?)
+             ORDER BY c.id DESC
+             LIMIT ?
+            """,
+            (cutoff,) + PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT + (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def changed_project_ids(self, *, limit: int = 20, days: int = 30) -> list[int]:
+        """Distinct project ids with a recent change, most recently changed first."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        rows = self.db.conn.execute(
+            """
+            SELECT c.project_id, MAX(c.id) AS last_id
+              FROM project_change c
+              JOIN project p ON p.id = c.project_id
+             WHERE c.detected_at >= ?
+               AND p.classification IN (?, ?)
+               AND p.procurement_status IN (?, ?)
+             GROUP BY c.project_id
+             ORDER BY last_id DESC
+             LIMIT ?
+            """,
+            (cutoff,) + PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT + (limit,),
+        ).fetchall()
+        return [int(r["project_id"]) for r in rows]
+
+    def recent_discoverable_ids(self, *, limit: int = 200) -> list[int]:
+        """Ids of the most recently dated discoverable projects.
+
+        Exposed so the dashboard's candidate pool comes from the same public rules as the
+        directory rather than from a second query written in the web layer. Returns ids only;
+        the caller loads full records through `projects_by_ids`, which reapplies the public
+        filter, so a project cannot slip through by being listed here.
+        """
+        rows = self.db.conn.execute(
+            """
+            SELECT id FROM project p
+             WHERE classification IN (?, ?)
+               AND procurement_status IN (?, ?)
+             ORDER BY permit_date DESC NULLS LAST, id DESC
+             LIMIT ?
+            """,
+            PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT + (limit,),
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
 
 
 class _SqliteRow:

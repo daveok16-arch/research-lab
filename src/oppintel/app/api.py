@@ -23,6 +23,7 @@ from typing import Any
 from flask import Blueprint, g, jsonify, request
 
 from ..service import DEFAULT_SORT, SORT_OPTIONS, OpportunityFilters
+from .workflow import WorkflowError
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -97,6 +98,10 @@ def list_opportunities() -> Any:
         date_from=request.args.get("date_from"),
         date_to=request.args.get("date_to"),
         include_unverified=request.args.get("include_unverified") in ("1", "true", "on"),
+        min_value=request.args.get("min_value"),
+        max_value=request.args.get("max_value"),
+        mechanical_only=request.args.get("mechanical_only") in ("1", "true", "on"),
+        freshness_days=_int(request.args.get("freshness_days"), 0) or None,
         sort=request.args.get("sort") or DEFAULT_SORT,
         page=_int(request.args.get("page"), 1),
         page_size=_int(request.args.get("page_size"), 20),
@@ -121,6 +126,10 @@ def list_opportunities() -> Any:
                 "date_from": filters.date_from,
                 "date_to": filters.date_to,
                 "include_unverified": filters.include_unverified,
+                "min_value": filters.min_value,
+                "max_value": filters.max_value,
+                "mechanical_only": filters.mechanical_only,
+                "freshness_days": filters.freshness_days,
             },
             "results": [
                 _project_payload(item, LIST_FIELDS) for item in result.items
@@ -164,6 +173,31 @@ def get_opportunity(slug: str) -> Any:
     payload["related_record_count"] = (
         project["sibling"].sibling_count if project.get("sibling") else 0
     )
+    # Recorded changes only. An empty list means the system has detected no change, which the
+    # client can state plainly rather than treating as missing data.
+    payload["changes"] = [
+        {
+            "field_name": change["field_name"],
+            "change_kind": change["change_kind"],
+            "summary": change["summary"],
+            "previous_value": change.get("previous_value"),
+            "current_value": change.get("current_value"),
+            "source_name": change.get("source_name"),
+            "source_url": change.get("source_url"),
+            "detected_at": _jsonable(change["detected_at"]),
+        }
+        for change in g.service.changes_for(project["id"], limit=25)
+    ]
+    # Why the project is relevant, from the same module the pages use.
+    from .matching import evaluate_match
+
+    prefs = g.accounts.get_preferences(g.user.id) if g.user else {}
+    payload["match_reasons"] = [
+        {"kind": r.kind, "label": r.label, "detail": r.detail}
+        for r in evaluate_match(
+            project, trade=g.trade, market=g.market, preferences=prefs
+        ).reasons
+    ]
     return jsonify(payload)
 
 
@@ -241,17 +275,8 @@ def list_saved() -> Any:
     """
     if not g.user:
         return _error("Authentication required", 401)
-    items = []
-    for project_id in g.accounts.saved_project_ids(g.user.id):
-        from ..slugs import slug_for_project
-
-        slug = slug_for_project(g.db, project_id)
-        if not slug:
-            continue
-        project = g.service.get_by_slug(slug)
-        if project:
-            items.append(_project_payload(project, LIST_FIELDS))
-    return jsonify({"total": len(items), "results": items})
+    items = g.service.projects_by_ids(g.accounts.saved_project_ids(g.user.id))
+    return jsonify({"total": len(items), "results": [_project_payload(p, LIST_FIELDS) for p in items]})
 
 
 @bp.route("/saved/<int:project_id>", methods=["POST", "DELETE"])
@@ -263,6 +288,171 @@ def save_opportunity(project_id: int) -> Any:
         return jsonify({"saved": False})
     saved = g.accounts.save_opportunity(g.user.id, project_id)
     return jsonify({"saved": True, "newly_saved": saved})
+
+
+# =====================================================================
+# Watching, pipeline, notes and alerts
+#
+# The machine-readable form of the account workspace. Every write is scoped to the
+# authenticated user, so a project id from another account is simply not reachable.
+# =====================================================================
+
+
+@bp.route("/watching")
+def list_watching() -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    items = g.service.projects_by_ids(g.workflow.watched_ids(g.user.id))
+    return jsonify(
+        {"total": len(items), "results": [_project_payload(p, LIST_FIELDS) for p in items]}
+    )
+
+
+@bp.route("/watching/<int:project_id>", methods=["POST", "DELETE"])
+def watch_opportunity(project_id: int) -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    if request.method == "DELETE":
+        g.workflow.unwatch(g.user.id, project_id)
+        return jsonify({"watching": False})
+    created = g.workflow.watch(g.user.id, project_id)
+    return jsonify({"watching": True, "newly_watched": created})
+
+
+@bp.route("/pipeline")
+def list_pipeline() -> Any:
+    """The account's own workflow entries, with the stage and follow-up date."""
+    if not g.user:
+        return _error("Authentication required", 401)
+    rows = g.workflow.pipeline_rows(g.user.id)
+    stage_by_id = {int(r["project_id"]): r for r in rows}
+    projects = g.service.projects_by_ids(list(stage_by_id))
+    results = []
+    for project in projects:
+        payload = _project_payload(project, LIST_FIELDS)
+        row = stage_by_id.get(int(project["id"]), {})
+        payload["stage"] = row.get("stage")
+        payload["follow_up_date"] = _jsonable(row.get("follow_up_date"))
+        payload["assigned_to"] = row.get("assigned_to")
+        results.append(payload)
+    return jsonify(
+        {"total": len(results), "counts": g.workflow.pipeline_counts(g.user.id), "results": results}
+    )
+
+
+@bp.route("/pipeline/<int:project_id>", methods=["POST", "DELETE"])
+def update_pipeline(project_id: int) -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    if request.method == "DELETE":
+        g.workflow.remove_from_pipeline(g.user.id, project_id)
+        return jsonify({"in_pipeline": False})
+    payload = request.get_json(silent=True) or {}
+    stage = payload.get("stage") or request.form.get("stage") or "NEW"
+    try:
+        g.workflow.set_stage(
+            g.user.id, project_id, stage,
+            follow_up_date=payload.get("follow_up_date") or request.form.get("follow_up_date"),
+        )
+    except WorkflowError as exc:
+        return _error(str(exc), 400)
+    return jsonify({"in_pipeline": True, "stage": g.workflow.stage_for(g.user.id, project_id)})
+
+
+@bp.route("/notes/<int:project_id>")
+def list_notes(project_id: int) -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    notes = g.workflow.notes_for(g.user.id, project_id)
+    return jsonify(
+        {
+            "total": len(notes),
+            "notes": [
+                {"id": n["id"], "body": n["body"], "created_at": _jsonable(n["created_at"])}
+                for n in notes
+            ],
+        }
+    )
+
+
+@bp.route("/notes/<int:project_id>", methods=["POST"])
+def add_note(project_id: int) -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    payload = request.get_json(silent=True) or {}
+    body = payload.get("body") or request.form.get("body", "")
+    try:
+        note_id = g.workflow.add_note(g.user.id, project_id, body)
+    except WorkflowError as exc:
+        return _error(str(exc), 400)
+    return jsonify({"id": note_id}), 201
+
+
+@bp.route("/alerts")
+def list_alerts() -> Any:
+    """Event-driven alerts. Each carries the change that caused it, when there was one."""
+    if not g.user:
+        return _error("Authentication required", 401)
+    unread_only = request.args.get("unread") in ("1", "true", "on")
+    items = g.alerts.for_user(g.user.id, unread_only=unread_only)
+    return jsonify(
+        {
+            "unread": g.alerts.unread_count(g.user.id),
+            "total": len(items),
+            "alerts": [
+                {
+                    "id": a["id"],
+                    "kind": a["kind"],
+                    "title": a["title"],
+                    "body": a["body"],
+                    "project_id": a["project_id"],
+                    "slug": a.get("slug"),
+                    "previous_value": a.get("previous_value"),
+                    "current_value": a.get("current_value"),
+                    "source_name": a.get("source_name"),
+                    "source_url": a.get("source_url"),
+                    "created_at": _jsonable(a["created_at"]),
+                    "read_at": _jsonable(a.get("read_at")),
+                }
+                for a in items
+            ],
+        }
+    )
+
+
+@bp.route("/alerts/<int:alert_id>/read", methods=["POST"])
+def read_alert(alert_id: int) -> Any:
+    if not g.user:
+        return _error("Authentication required", 401)
+    g.alerts.mark_read(g.user.id, alert_id)
+    return jsonify({"unread": g.alerts.unread_count(g.user.id)})
+
+
+@bp.route("/me")
+def whoami() -> Any:
+    """The caller's identity and resolved entitlements.
+
+    Reports what the stored subscription and access level actually grant, so a client cannot
+    infer a paid capability it does not hold.
+    """
+    entitlement = g.entitlement
+    return jsonify(
+        {
+            "authenticated": bool(g.user),
+            "user": (
+                {"display_name": g.user.display, "access_level": g.user.access_level}
+                if g.user
+                else None
+            ),
+            "entitlement": {
+                "plan": entitlement.plan_id,
+                "plan_name": entitlement.plan_name,
+                "status": entitlement.status,
+                "features": sorted(entitlement.features),
+                "is_paid": entitlement.is_paid,
+            },
+        }
+    )
 
 
 def _int(value: Any, default: int) -> int:

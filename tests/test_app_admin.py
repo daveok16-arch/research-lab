@@ -255,8 +255,11 @@ def test_admin_page_exposes_no_source_url_or_credential(admin_client):
     import re
 
     assert not re.findall(r"https?://", body), "the admin page renders an outbound URL"
+    # `_csrf_token` is a form field name, not a secret; it is excluded so the assertion still
+    # catches a real credential leak rather than tripping on the anti-CSRF field.
+    lowered = body.lower().replace("_csrf_token", "")
     for secret in ("password", "secret", "api_key", "token", "oppintel.db", "sqlite"):
-        assert secret not in body.lower(), f"the admin page leaks: {secret}"
+        assert secret not in lowered, f"the admin page leaks: {secret}"
 
 
 def test_no_ingestion_route_is_registered(app_db):

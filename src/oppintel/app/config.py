@@ -75,6 +75,25 @@ class AppConfig:
         default_factory=lambda: _env_int("FREE_VIEW_LIMIT", 0)
     )
 
+    #: Whether CSRF, rate limiting and response headers are enforced. Derived in
+    #: `__post_init__` from the `debug` value rather than from the environment, because the
+    #: field is often set explicitly (by a test or a factory) and reading the environment
+    #: again would disagree with the object the caller actually built.
+    csrf_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        """Derive the security flag from the debug flag unless overridden explicitly.
+
+        A debug process runs with the protections off so local work is not blocked; every
+        other process runs with them on. `CSRF_ENABLED` overrides both, for a test that needs
+        the protections against a debug-style configuration.
+        """
+        raw = os.environ.get("CSRF_ENABLED")
+        if raw is None:
+            self.csrf_enabled = not self.debug
+        else:
+            self.csrf_enabled = _env_bool("CSRF_ENABLED", True)
+
     #: Access levels the authorization layer understands. Payment is not implemented; this
     #: exists so monetization does not require redesigning authorization later.
     #:

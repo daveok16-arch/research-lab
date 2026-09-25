@@ -22,11 +22,13 @@
     · Last verified {{ project.last_verified | month_year }}
   </p>
 
-  {# Saving is a POST so a link prefetch or a crawler cannot mutate account state. #}
+  {# Actions are POSTs so a link prefetch or a crawler cannot mutate account state. Save and
+     Watch are deliberately separate: a save bookmarks, a watch asks for monitoring. #}
   <div class="action-row">
     {% if current_user %}
       <form method="post" action="{{ url_for('save_opportunity', project_id=project.id) }}" class="inline-form">
-        {% if is_saved %}
+        {% include "partials/csrf.html" %}
+        {% if project.is_saved %}
           <input type="hidden" name="action" value="remove">
           <button class="btn btn-outline" type="submit">Remove from saved</button>
         {% else %}
@@ -34,11 +36,51 @@
           <button class="btn btn-primary" type="submit">Save opportunity</button>
         {% endif %}
       </form>
+      <form method="post" action="{{ url_for('watch_opportunity', project_id=project.id) }}" class="inline-form">
+        {% include "partials/csrf.html" %}
+        <input type="hidden" name="action" value="{{ 'remove' if project.is_watched else 'watch' }}">
+        <button class="btn {{ 'btn-outline' if project.is_watched else 'btn-ghost' }}" type="submit">
+          {{ 'Watching' if project.is_watched else 'Watch for changes' }}
+        </button>
+      </form>
+      <form method="post" action="{{ url_for('pipeline_update', project_id=project.id) }}" class="inline-form">
+        {% include "partials/csrf.html" %}
+        <label class="visually-hidden" for="stage-select">Pipeline stage</label>
+        <select id="stage-select" name="stage" class="select-inline">
+          <option value="">Add to pipeline…</option>
+          {% for key, label in stages %}
+            <option value="{{ key }}" {% if project.stage == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-outline" type="submit">Set stage</button>
+      </form>
     {% else %}
       <a class="btn btn-primary" href="{{ url_for('signin', next=request.path) }}">Sign in to save</a>
     {% endif %}
   </div>
 </div>
+
+{% if project.match_reasons %}
+{# Why this matches: facts the record supports, produced by the shared matching module. #}
+<div class="detail-panel why-matches-panel">
+  <h2>Why this opportunity matters</h2>
+  <ul class="why-list">
+    {% for reason in project.match_reasons %}
+      <li>
+        <span class="tick" aria-hidden="true">✓</span>
+        <span>
+          <strong>{{ reason.label }}</strong>
+          {% if reason.detail %}<span class="muted small">{{ reason.detail }}</span>{% endif %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+  <p class="small muted">
+    These are facts drawn from the record and your preferences. This is relevance, not a bid
+    status.
+  </p>
+</div>
+{% endif %}
 
 <div class="detail-grid">
   <div>
@@ -248,6 +290,93 @@
           </tbody>
         </table>
       </div>
+    </div>
+    {% endif %}
+
+    {# Change timeline. Only real recorded events appear; when nothing has changed the panel
+       says so rather than inventing an initial event. #}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Activity</h2>
+      {% if project.timeline %}
+        <ol class="timeline">
+          {% for event in project.timeline %}
+          <li>
+            <span class="timeline-date">{{ event.detected_at[:10] }}</span>
+            <span class="timeline-body">
+              {{ event.summary }}
+              {% if event.source_url %}
+                <a class="src-url" href="{{ event.source_url }}" target="_blank"
+                   rel="noopener noreferrer nofollow">source</a>
+              {% endif %}
+            </span>
+          </li>
+          {% endfor %}
+        </ol>
+        <p class="small muted">
+          Each entry is a difference the system detected between two collection passes.
+        </p>
+      {% else %}
+        <p class="small muted">
+          No change has been recorded for this project yet. The timeline fills only when the
+          record actually changes.
+        </p>
+      {% endif %}
+    </div>
+
+    {% if current_user %}
+    {# Private working notes. Rendered only for the owning account. #}
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Your notes</h2>
+      <form method="post" action="{{ url_for('add_note', project_id=project.id) }}">
+        {% include "partials/csrf.html" %}
+        <label class="visually-hidden" for="note-body">Note</label>
+        <textarea id="note-body" name="body" rows="3"
+                  placeholder="Add a private note about this opportunity"></textarea>
+        <button class="btn btn-small btn-primary" type="submit">Add note</button>
+      </form>
+      {% if project.notes %}
+        <ul class="note-list">
+          {% for note in project.notes %}
+          <li>
+            <p>{{ note.body }}</p>
+            <div class="note-meta">
+              <span class="muted small">{{ note.created_at[:16] | replace('T', ' ') }}</span>
+              <form method="post" action="{{ url_for('delete_note', note_id=note.id) }}" class="inline-form">
+                {% include "partials/csrf.html" %}
+                <button class="btn btn-small btn-ghost" type="submit">Delete</button>
+              </form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="small muted">No notes on this opportunity.</p>
+      {% endif %}
+    </div>
+
+    <div class="detail-panel" style="margin-top:20px">
+      <h2>Your tags</h2>
+      <form method="post" action="{{ url_for('tag_opportunity', project_id=project.id) }}" class="inline-form">
+        {% include "partials/csrf.html" %}
+        <label class="visually-hidden" for="tag-input">Tag</label>
+        <input id="tag-input" name="tag" placeholder="e.g. priority" maxlength="40">
+        <button class="btn btn-small btn-outline" type="submit">Add</button>
+      </form>
+      {% if project.tags %}
+        <ul class="tag-list">
+          {% for tag in project.tags %}
+          <li>
+            <span class="tag">{{ tag }}</span>
+            <form method="post" action="{{ url_for('tag_opportunity', project_id=project.id) }}" class="inline-form">
+              {% include "partials/csrf.html" %}
+              <input type="hidden" name="action" value="remove">
+              <input type="hidden" name="tag" value="{{ tag }}">
+              <button class="tag-remove" type="submit" aria-label="Remove tag {{ tag }}">×</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
     </div>
     {% endif %}
 

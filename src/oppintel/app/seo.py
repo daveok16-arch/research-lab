@@ -256,6 +256,65 @@ class SeoBuilder:
     def simple(self, title: str, description: str) -> Seo:
         return Seo(title=title, description=description, canonical=self.url("/"))
 
+    def project_types_index(self, types: list[dict[str, Any]]) -> Seo:
+        named = ", ".join(row["project_type"] for row in types[:6]) or "commercial building types"
+        return Seo(
+            title=f"{self.market.short_name} Commercial Project Types",
+            description=(
+                f"Commercial construction opportunities across {self.market.name} by project "
+                f"type, including {named}. Counts are drawn from public permit records."
+            ),
+            canonical=self.url("/project-types"),
+            json_ld=[
+                self._breadcrumbs(
+                    [("Home", "/"), ("Project types", "/project-types")]
+                )
+            ],
+        )
+
+    def project_type_page(self, project_type: str, stats: dict[str, Any]) -> Seo:
+        from ..config import type_slug
+
+        count = stats.get("projects_public", 0)
+        mechanical = stats.get("with_mechanical", 0)
+        label = self.trade.short_label or self.trade.label
+        return Seo(
+            title=f"{project_type} Construction Opportunities in {self.market.short_name}",
+            description=(
+                f"{count:,} active {project_type.lower()} construction projects across "
+                f"{self.market.name} with documented mechanical evidence"
+                + (f", {mechanical:,} carrying a mechanical permit." if mechanical else ".")
+            ),
+            canonical=self.url(f"/project-types/{type_slug(project_type)}"),
+            json_ld=[
+                self._breadcrumbs(
+                    [
+                        ("Home", "/"),
+                        ("Project types", "/project-types"),
+                        (project_type, f"/project-types/{type_slug(project_type)}"),
+                    ]
+                ),
+                self._dataset_json_ld(stats),
+            ],
+        )
+
+    def guide_page(self, guide: dict[str, Any]) -> Seo:
+        return Seo(
+            title=guide["title"],
+            description=guide["summary"],
+            canonical=self.url(f"/guides/{guide['slug']}"),
+            og_type="article",
+            json_ld=[
+                self._breadcrumbs(
+                    [
+                        ("Home", "/"),
+                        ("Guides", "/guides"),
+                        (guide["title"], f"/guides/{guide['slug']}"),
+                    ]
+                )
+            ],
+        )
+
     # --- structured data ------------------------------------------------------
 
     def _org_json_ld(self) -> dict[str, Any]:
@@ -370,8 +429,36 @@ class SeoBuilder:
         add("/opportunities", 0.9, "daily")
         add("/markets", 0.6)
         add("/trades", 0.6)
+        add("/project-types", 0.6)
+        add("/guides", 0.5, "monthly")
         add("/how-it-works", 0.5, "monthly")
         add("/reports", 0.6)
+
+        # Project-type pages, only for types the database actually holds, so the sitemap never
+        # advertises a thin page with nothing behind it.
+        db = Database(self.cfg.database_path)
+        try:
+            type_rows = db.conn.execute(
+                """
+                SELECT DISTINCT project_type FROM project
+                 WHERE classification IN ('HIGH', 'MEDIUM')
+                   AND procurement_status IN ('Confirmed open', 'Evidence found, status unclear')
+                   AND project_type IS NOT NULL
+                """
+            ).fetchall()
+        finally:
+            db.close()
+        from ..config import type_slug
+
+        for row in type_rows:
+            slug = type_slug(row["project_type"])
+            if slug:
+                add(f"/project-types/{slug}", 0.7, "weekly")
+
+        from .content import GUIDES
+
+        for guide in GUIDES:
+            add(f"/guides/{guide['slug']}", 0.5, "monthly")
 
         for market in _all_markets().values():
             if not market.active:

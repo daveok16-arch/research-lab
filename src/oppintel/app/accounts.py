@@ -218,13 +218,15 @@ class AccountService:
         self, user_id: int, *, market_id: str, trade_id: str,
         cities: list[str], project_types: list[str],
         notify_in_app: bool, notify_email: bool,
+        min_value: float | None = None, max_value: float | None = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self.db.conn.execute(
             """
             INSERT INTO user_preference (user_id, market_id, trade_id, cities, project_types,
-                                         notify_in_app, notify_email, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                         notify_in_app, notify_email, min_value, max_value,
+                                         updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 market_id = excluded.market_id,
                 trade_id = excluded.trade_id,
@@ -232,12 +234,15 @@ class AccountService:
                 project_types = excluded.project_types,
                 notify_in_app = excluded.notify_in_app,
                 notify_email = excluded.notify_email,
+                min_value = excluded.min_value,
+                max_value = excluded.max_value,
                 updated_at = excluded.updated_at
             """,
             (
                 user_id, market_id, trade_id,
                 json.dumps(sorted(set(cities))), json.dumps(sorted(set(project_types))),
-                1 if notify_in_app else 0, 1 if notify_email else 0, now,
+                1 if notify_in_app else 0, 1 if notify_email else 0,
+                min_value, max_value, now,
             ),
         )
         self.db.conn.commit()

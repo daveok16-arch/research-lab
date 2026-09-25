@@ -1,4 +1,4 @@
-{# Reusable opportunity card. Used by the directory, homepage and landing pages. #}
+{# Reusable opportunity card. Used by the directory, homepage, dashboard and landing pages. #}
 <article class="card">
   <div class="badge-row">
     <span class="badge badge-{{ project.classification | lower | replace('_','-') }}">
@@ -13,6 +13,11 @@
     {% endif %}
     {% if project.shares_building %}
       <span class="badge badge-plain">Shares building</span>
+    {% endif %}
+    {% if project.stage %}
+      {# The account's own workflow state, labelled as such so it is never read as a source
+         status. #}
+      <span class="badge badge-stage">Your pipeline: {{ project.stage | replace('_',' ') | title }}</span>
     {% endif %}
   </div>
 
@@ -30,17 +35,30 @@
     {{ project.address | or_na }}{% if project.city %}, {{ project.city }}{% endif %}
   </p>
 
+  {% if project.match_reasons %}
+  {# Why this matches: only facts the record supports, produced by one shared implementation. #}
+  <div class="why-matches">
+    <p class="why-head">Why this matches you</p>
+    <ul>
+      {% for reason in project.match_reasons[:4] %}
+        <li><span class="tick" aria-hidden="true">✓</span> {{ reason.label }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   <dl class="facts">
     <div>
       <dt>Project type</dt>
       <dd>{{ project.project_type | or_na }}</dd>
     </div>
     <div>
-      <dt>Status</dt>
-      <dd>{{ project.project_status | or_na }}</dd>
+      <dt>Value</dt>
+      <dd>{{ project.estimated_project_value | money }}</dd>
     </div>
     <div>
       <dt>Procurement</dt>
+      {# Stated as a status, never as an available bid. #}
       <dd>{{ project.procurement_status | or_na }}</dd>
     </div>
     <div>
@@ -56,4 +74,30 @@
     {% endif %}
     Last verified {{ project.last_verified | month_year }}
   </div>
+
+  {% if current_user and project.id %}
+  {# Save and watch are separate intents: a save bookmarks, a watch monitors for change.
+     Both are POSTs so a crawler or a prefetch cannot mutate account state. #}
+  <div class="card-actions">
+    <form method="post" action="{{ url_for('save_opportunity', project_id=project.id) }}" class="inline-form">
+      {% include "partials/csrf.html" %}
+      <input type="hidden" name="action" value="{{ 'remove' if project.is_saved else 'save' }}">
+      <button class="btn btn-small {{ 'btn-outline' if project.is_saved else 'btn-primary' }}" type="submit">
+        {{ 'Saved' if project.is_saved else 'Save' }}
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('watch_opportunity', project_id=project.id) }}" class="inline-form">
+      {% include "partials/csrf.html" %}
+      <input type="hidden" name="action" value="{{ 'remove' if project.is_watched else 'watch' }}">
+      <button class="btn btn-small {{ 'btn-outline' if project.is_watched else 'btn-ghost' }}" type="submit">
+        {{ 'Watching' if project.is_watched else 'Watch' }}
+      </button>
+    </form>
+    {% if project.slug %}
+      <a class="btn btn-small btn-ghost" href="{{ url_for('opportunity_detail', slug=project.slug) }}">
+        View
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
 </article>

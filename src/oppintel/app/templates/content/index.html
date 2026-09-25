@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block hero %}
+<section class="hero hero-compact">
+  <div class="wrap">
+    <p class="crumb"><a href="{{ url_for('home') }}">Home</a> · Guides</p>
+    <h1>Guides</h1>
+    <p class="lede">
+      Short, practical explanations of how to read public construction records and judge whether
+      a project is worth investigating. Written for estimating and business-development teams.
+    </p>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+<div class="guide-grid">
+  {% for guide in guides %}
+  <a class="guide-card" href="{{ url_for('guide_detail', guide_slug=guide.slug) }}">
+    <h3>{{ guide.title }}</h3>
+    <p>{{ guide.summary }}</p>
+    <span class="muted small">Updated {{ guide.updated }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

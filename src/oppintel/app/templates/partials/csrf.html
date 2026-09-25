@@ -1,0 +1,4 @@
+{# Hidden CSRF token for a state-changing form. Included by every POST form so a new form
+   cannot silently ship without one — the token is required by the security layer, and a form
+   that omits it fails closed with a 403 rather than being exempted. #}
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
