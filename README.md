@@ -58,7 +58,7 @@ report generator uses, so a page and a report can never disagree about a project
 | `/signin`, `/signup`, `/saved`, `/preferences` | Free account |
 | `/sitemap.xml`, `/robots.txt` | Crawler control |
 | `/api/*` | Read-mostly JSON API |
-| `/admin/data` | Internal operations view (aggregate counts only) |
+| `/admin/data` | Internal operations view. **Operator accounts only** (see below) |
 
 ---
 
@@ -277,9 +277,23 @@ See `.env.example`.
      --access-logfile - --error-logfile - oppintel.app.wsgi:application
    ```
 
-6. **Put `/admin/data` behind network access control.** It is not linked publicly and is marked
-   `noindex`, but it is not authenticated in the MVP. Restrict it at the proxy, or leave it
-   unexposed.
+6. **Create an operator account for `/admin/data`.** The page requires an account whose
+   access level is `ADMIN`. Create the account through `/signup`, then promote it on the host
+   that owns the database:
+
+   ```bash
+   PYTHONPATH=src flask --app oppintel.app.wsgi grant-admin ops@example.com
+   ```
+
+   An unauthenticated request is redirected to sign-in, and a signed-in non-operator receives
+   `403`. The level is granted only by this command: there is no web route that can set it, so
+   no request can escalate its own privileges. To remove access:
+
+   ```bash
+   PYTHONPATH=src flask --app oppintel.app.wsgi revoke-admin ops@example.com
+   ```
+
+   The page stays marked `noindex` and disallowed in `robots.txt` as a second layer.
 
 **Schema migration.** The application tables are created with `IF NOT EXISTS` statements, so
 `init-app` is additive and idempotent against a database that already holds ingested data. It
@@ -375,7 +389,8 @@ classification gates stay in the intelligence layer and are unaffected.
   monetization does not require redesigning authorization, but all accounts are `FREE`.
 - Email alerts are not implemented. The alert data model and the preference exist; delivery does
   not.
-- `/admin/data` is not authenticated. Restrict it at the network layer.
+- `/admin/data` requires an `ADMIN` account and is unreachable without one. There is no
+  self-service way to grant the level; it is set by CLI on the host.
 - Suite-level records are grouped and flagged but never merged, so project counts exceed building
   counts.
 

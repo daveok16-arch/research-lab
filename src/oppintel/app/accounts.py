@@ -56,6 +56,16 @@ class User:
         return self.access_level in ("PRO", "TEAM")
 
     @property
+    def is_admin(self) -> bool:
+        """Whether this user may reach the internal operations view.
+
+        ADMIN is deliberately separate from the paid tiers: an operator is not a customer, and
+        a subscription must never imply access to internal data. The level is set only by the
+        CLI, so no web request can grant it.
+        """
+        return self.access_level == "ADMIN"
+
+    @property
     def display(self) -> str:
         return self.display_name or self.email.split("@")[0]
 

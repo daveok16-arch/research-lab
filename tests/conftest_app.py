@@ -145,3 +145,43 @@ def fixture_db(tmp_path):
     db = build_database(tmp_path / "direct.db")
     yield db
     db.close()
+
+
+#: The account level that gates the internal operations view.
+ADMIN_LEVEL = "ADMIN"
+
+
+def grant_admin(app_db, email: str) -> None:
+    """Raise an account to the operator level.
+
+    Mirrors what `flask grant-admin` does. The level is set directly in the database because
+    there is deliberately no web route that can grant it.
+    """
+    db = Database(app_db.config["APP_CONFIG"].database_path)
+    try:
+        cursor = db.conn.execute(
+            "UPDATE app_user SET access_level = ? WHERE email = ?",
+            (ADMIN_LEVEL, email.lower()),
+        )
+        db.conn.commit()
+        assert cursor.rowcount == 1, f"no account for {email!r}"
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def admin_client(app_db):
+    """A signed-in client whose account holds the operator level."""
+    c = app_db.test_client()
+    c.post(
+        "/signup",
+        data={
+            "email": "operator@example.com",
+            "password": "correct-horse-battery",
+            "password_confirm": "correct-horse-battery",
+            "display_name": "Operator",
+        },
+        follow_redirects=True,
+    )
+    grant_admin(app_db, "operator@example.com")
+    return c

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="section">
+  <div class="empty">
+    <h3>You do not have access to that page</h3>
+    <p>
+      This page is limited to operator accounts. Your account is signed in but is not
+      authorised for it.
+    </p>
+    <ul>
+      <li>Return to the opportunity directory to continue working.</li>
+      <li>If you believe you should have access, contact the account owner.</li>
+    </ul>
+    <a class="btn btn-primary" href="{{ url_for('opportunities') }}">Browse opportunities</a>
+  </div>
+</section>
+{% endblock %}
