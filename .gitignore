@@ -9,6 +9,15 @@ data/*.db-shm
 data/raw/
 reports/out/
 
+# Automation runtime state
+data/*.log
+data/*.out
+data/*.pid
+data/automation_state.json
+
+# Static site export
+dist/
+
 # Python
 __pycache__/
 *.pyc

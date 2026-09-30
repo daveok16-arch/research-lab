@@ -1,0 +1,124 @@
+name: Publish site
+
+# Builds the DFW opportunity intelligence data, freezes the public site and publishes it to
+# GitHub Pages at https://daveok16-arch.github.io/research-lab/. The intelligence layer runs
+# here rather than in the browser: Pages serves static files, so the data is collected, scored
+# and assembled in the runner, then exported as HTML.
+#
+# Triggers:
+#   - push to main      — republish whenever the code changes
+#   - schedule          — daily refresh so the published data does not go stale
+#   - workflow_dispatch — manual run with a bounded or full ingest
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      max_pages:
+        description: "Pages per source (empty = connector default)"
+        required: false
+        default: ""
+      full:
+        description: "Full ingest of every page of every source"
+        required: false
+        type: boolean
+        default: false
+
+# Least privilege: the deploy job needs to write Pages and mint an OIDC token.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publisher at a time; a newer run supersedes a queued one but never cancels a live deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          PYTHONPATH: src
+          SECRET_KEY: ci-not-a-secret
+        run: python -m pytest tests/ -q
+
+      - name: Initialise schema
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m oppintel.cli initdb
+          python -m flask --app oppintel.app.wsgi init-app
+
+      - name: Ingest permits
+        env:
+          PYTHONPATH: src
+        run: |
+          if [ "${{ github.event.inputs.full }}" = "true" ]; then
+            python -m oppintel.cli ingest
+          elif [ -n "${{ github.event.inputs.max_pages }}" ]; then
+            python -m oppintel.cli ingest --max-pages "${{ github.event.inputs.max_pages }}"
+          else
+            # Connectors paginate newest-first, so a bounded fetch keeps the published site
+            # current without pulling the full multi-hundred-thousand-row backlog every run.
+            python -m oppintel.cli ingest --max-pages 3
+          fi
+
+      - name: Assemble projects and detect changes
+        env:
+          PYTHONPATH: src
+        run: python -m oppintel.cli assemble
+
+      - name: Build search index
+        env:
+          PYTHONPATH: src
+        run: python -m flask --app oppintel.app.wsgi build-search-index
+
+      - name: Raise alerts from detected changes
+        env:
+          PYTHONPATH: src
+        run: python -m flask --app oppintel.app.wsgi monitor
+
+      - name: Export the static site
+        env:
+          PYTHONPATH: src
+          SECRET_KEY: ci-not-a-secret
+        run: |
+          python ops/export_static.py \
+            --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" \
+            --out dist --strict
+
+      - uses: actions/configure-pages@v5
+        with:
+          # Enable Pages with the Actions build type on the first run, so the site can be
+          # published without a manual visit to the repository settings.
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

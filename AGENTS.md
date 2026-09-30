@@ -40,6 +40,11 @@ flask --app oppintel.app.wsgi set-plan EMAIL PRO [--status ACTIVE|TRIALING|PAST_
 
 # Tests
 python -m pytest tests/ -q
+
+# Run the app and automate the online-search pipeline (no cron/systemd here)
+ops/start.sh                 # gunicorn on 0.0.0.0:12000 + scheduled refresh
+ops/stop.sh
+PYTHONPATH=src python ops/automate.py --once --max-pages 2   # one bounded refresh
 ```
 
 ## Non-negotiable rules
@@ -92,6 +97,36 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * `app_db` / `client` / `session_client` / `admin_client` run with protections off (debug).
 * `secured_client` runs with CSRF and rate limiting **on** — use it for security tests.
 * `csrf_from(client, path)` extracts a token as a browser form post would carry it.
+
+## Automation
+
+* `ops/automate.py` is the only automation entry point. It supervises gunicorn **and** runs
+  the refresh pipeline on a separate thread, so a long `ingest` never blocks server restart.
+* This environment has no cron or systemd (PID 1 is `openhands-agent`). Do not add a crontab
+  or unit file; schedule in-process instead.
+* Connectors order newest-first and default to 200 pages/source. An unbounded `ingest`
+  (Fort Worth ArcGIS alone) is 200k+ records and takes >13 min, so a recurring refresh is
+  bounded (`MAX_PAGES`, default 3); use `--full` only for an initial backfill.
+* `ops/start.sh` redirects the daemon's stdout to `data/automation.out`, **not**
+  `data/automation.log`: the daemon owns that log file itself and a second writer interleaves
+  and truncates lines.
+* Runtime state is git-ignored: `data/*.log`, `data/*.out`, `data/*.pid`,
+  `data/automation_state.json`.
+
+## GitHub Pages
+
+* The public site is published to GitHub Pages at
+  `https://<owner>.github.io/<repo>/` by `.github/workflows/pages.yml`, on push to `main`,
+  daily, and on manual dispatch. Pages serves static files, so the workflow runs the
+  intelligence layer in the runner and then freezes the site.
+* `ops/export_static.py` renders each canonical URL (from `sitemap.xml`) through the app's
+  test client and writes it as a file. It passes the project sub-path as `SCRIPT_NAME` so
+  `url_for` emits prefixed links; the export root maps to the site root on disk, so static
+  assets live at `dist/static` and are served at `<base-url>/static`.
+* Run the exporter with `--strict` in CI: it fails the build when an internal link or asset
+  resolves to no exported file. A silent 404 on a frozen page is the failure mode to guard.
+* GitHub Pages is a mirror, not a second implementation. Account routes (sign-in, dashboard,
+  pipeline) are not exported and their links are dead there by design.
 
 ## Gotcha list
 
