@@ -40,6 +40,11 @@ flask --app oppintel.app.wsgi set-plan EMAIL PRO [--status ACTIVE|TRIALING|PAST_
 
 # Tests
 python -m pytest tests/ -q
+
+# Run the app and automate the online-search pipeline (no cron/systemd here)
+ops/start.sh                 # gunicorn on 0.0.0.0:12000 + scheduled refresh
+ops/stop.sh
+PYTHONPATH=src python ops/automate.py --once --max-pages 2   # one bounded refresh
 ```
 
 ## Non-negotiable rules
@@ -92,6 +97,21 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * `app_db` / `client` / `session_client` / `admin_client` run with protections off (debug).
 * `secured_client` runs with CSRF and rate limiting **on** — use it for security tests.
 * `csrf_from(client, path)` extracts a token as a browser form post would carry it.
+
+## Automation
+
+* `ops/automate.py` is the only automation entry point. It supervises gunicorn **and** runs
+  the refresh pipeline on a separate thread, so a long `ingest` never blocks server restart.
+* This environment has no cron or systemd (PID 1 is `openhands-agent`). Do not add a crontab
+  or unit file; schedule in-process instead.
+* Connectors order newest-first and default to 200 pages/source. An unbounded `ingest`
+  (Fort Worth ArcGIS alone) is 200k+ records and takes >13 min, so a recurring refresh is
+  bounded (`MAX_PAGES`, default 3); use `--full` only for an initial backfill.
+* `ops/start.sh` redirects the daemon's stdout to `data/automation.out`, **not**
+  `data/automation.log`: the daemon owns that log file itself and a second writer interleaves
+  and truncates lines.
+* Runtime state is git-ignored: `data/*.log`, `data/*.out`, `data/*.pid`,
+  `data/automation_state.json`.
 
 ## Gotcha list
 
