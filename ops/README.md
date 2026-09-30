@@ -30,6 +30,28 @@ For a one-off full backfill of every page of every source:
 PYTHONPATH=src python ops/automate.py --once --full
 ```
 
+## Publish to GitHub Pages
+
+GitHub Pages serves static files, so the dynamic app cannot run there. `.github/workflows/pages.yml`
+runs the intelligence layer in the runner, freezes the public site and deploys it:
+
+**https://daveok16-arch.github.io/research-lab/**
+
+The workflow runs on every push to `main`, daily on a schedule, and on manual dispatch (with
+`max_pages` or `full` inputs). It tests, ingests, assembles, indexes, exports and deploys.
+
+`ops/export_static.py` does the freezing. It walks `sitemap.xml` — the app's own list of canonical
+URLs — renders each through the app's test client, and follows same-site links to pick up pages the
+sitemap omits (the report detail pages). Passing the project sub-path as `SCRIPT_NAME` makes
+`url_for` emit prefixed links, so the frozen pages resolve their own assets without an HTML rewrite.
+
+```bash
+PYTHONPATH=src python ops/export_static.py \
+    --base-url https://daveok16-arch.github.io/research-lab --out dist --strict
+```
+
+`--strict` fails the build if any internal link or asset resolves to no exported file.
+
 ## Stop
 
 ```bash

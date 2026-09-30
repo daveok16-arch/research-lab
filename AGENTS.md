@@ -113,6 +113,21 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * Runtime state is git-ignored: `data/*.log`, `data/*.out`, `data/*.pid`,
   `data/automation_state.json`.
 
+## GitHub Pages
+
+* The public site is published to GitHub Pages at
+  `https://<owner>.github.io/<repo>/` by `.github/workflows/pages.yml`, on push to `main`,
+  daily, and on manual dispatch. Pages serves static files, so the workflow runs the
+  intelligence layer in the runner and then freezes the site.
+* `ops/export_static.py` renders each canonical URL (from `sitemap.xml`) through the app's
+  test client and writes it as a file. It passes the project sub-path as `SCRIPT_NAME` so
+  `url_for` emits prefixed links; the export root maps to the site root on disk, so static
+  assets live at `dist/static` and are served at `<base-url>/static`.
+* Run the exporter with `--strict` in CI: it fails the build when an internal link or asset
+  resolves to no exported file. A silent 404 on a frozen page is the failure mode to guard.
+* GitHub Pages is a mirror, not a second implementation. Account routes (sign-in, dashboard,
+  pipeline) are not exported and their links are dead there by design.
+
 ## Gotcha list
 
 * A dict key named `items` collides with `dict.items` in Jinja. Use another name
