@@ -119,6 +119,10 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
   `https://<owner>.github.io/<repo>/` by `.github/workflows/pages.yml`, on push to `main`,
   daily, and on manual dispatch. Pages serves static files, so the workflow runs the
   intelligence layer in the runner and then freezes the site.
+* The workflow publishes by pushing the export to the `gh-pages` branch, which is what Pages
+  serves. It does not use the Pages deploy API: that requires a token with Pages-management
+  scope, which the CI token does not have. `gh-pages` is generated content, force-pushed and
+  rebuilt from scratch each run — never edit it by hand.
 * `ops/export_static.py` renders each canonical URL (from `sitemap.xml`) through the app's
   test client and writes it as a file. It passes the project sub-path as `SCRIPT_NAME` so
   `url_for` emits prefixed links; the export root maps to the site root on disk, so static
