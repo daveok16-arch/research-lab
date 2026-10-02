@@ -149,6 +149,11 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * `OPPINTEL_DB` is read by the CLI (`oppintel.cli.DEFAULT_DB`), so the pipeline honours a mounted
   disk without every command repeating `--db`. The web layer reads `OPPINTEL_DB` through
   `AppConfig.database_path`. Point both at the same file.
+* `BASE_URL` is the public origin for canonical tags and the sitemap. `ops/start.sh` resolves it
+  as `BASE_URL` → `RENDER_EXTERNAL_URL` → loopback, in that order. Never let the loopback default
+  reach a deployment: it puts `http://127.0.0.1:<port>` in every canonical tag and every sitemap
+  entry, and because the script always sets a value, the app's own relative-path fallback is never
+  reached. `AppConfig.base_url` is empty only when nothing sets it.
 * `/healthz` is operational, not content: it is in the robots disallow list (`app/seo.py`) and
   marked `noindex`. Add any new operational route there, not to a sitemap.
 

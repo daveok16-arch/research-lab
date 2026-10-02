@@ -20,9 +20,12 @@ export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
 export SECRET_KEY="${SECRET_KEY:-dev-only-not-for-production}"
 export HOST="${HOST:-0.0.0.0}"
 
-FOREGROUND=0
+# Read the caller's intent before overwriting it: assigning first made `FOREGROUND=1` a no-op,
+# so the documented way to force foreground mode silently ran the local branch instead.
 if [ "${FOREGROUND:-0}" = "1" ] || [ -n "${RENDER:-}" ]; then
     FOREGROUND=1
+else
+    FOREGROUND=0
 fi
 
 # A host that assigns a port must win over the local default.
@@ -45,7 +48,12 @@ if ! mkdir -p "$OPPINTEL_DATA_DIR" 2>/dev/null || [ ! -w "$OPPINTEL_DATA_DIR" ];
 fi
 
 export OPPINTEL_DB="${OPPINTEL_DB:-$OPPINTEL_DATA_DIR/oppintel.db}"
-export BASE_URL="${BASE_URL:-http://127.0.0.1:${PORT}}"
+# The public origin, used for canonical links, Open Graph tags and the sitemap. An explicit
+# BASE_URL wins; otherwise use the host's own notion of its URL, which is what a platform injects.
+# Loopback is the last resort and belongs to a local run only: letting it reach a real deployment
+# puts http://127.0.0.1:<port> in every canonical tag and every sitemap entry, and the app's own
+# fallback (relative paths when the origin is unknown) is never reached because this sets a value.
+export BASE_URL="${BASE_URL:-${RENDER_EXTERNAL_URL:-http://127.0.0.1:${PORT}}}"
 
 # The database may be pointed outside OPPINTEL_DATA_DIR, so check its directory too: sqlite
 # creates the file, not the directory, and a missing mount path fails as a raw traceback.
