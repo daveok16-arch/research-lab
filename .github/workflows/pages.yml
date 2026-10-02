@@ -1,9 +1,11 @@
 name: Publish site
 
 # Builds the DFW opportunity intelligence data, freezes the public site and publishes it to
-# GitHub Pages at https://daveok16-arch.github.io/research-lab/. The intelligence layer runs
-# here rather than in the browser: Pages serves static files, so the data is collected, scored
-# and assembled in the runner, then exported as HTML.
+# GitHub Pages at https://daveok16-arch.github.io/research-lab/.
+#
+# The intelligence layer runs here rather than in the browser: Pages serves static files, so the
+# data is collected, scored and assembled in the runner, then exported as HTML and pushed to the
+# `gh-pages` branch that Pages publishes from.
 #
 # Triggers:
 #   - push to main      — republish whenever the code changes
@@ -27,11 +29,8 @@ on:
         type: boolean
         default: false
 
-# Least privilege: the deploy job needs to write Pages and mint an OIDC token.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One publisher at a time; a newer run supersedes a queued one but never cancels a live deploy.
 concurrency:
@@ -103,22 +102,36 @@ jobs:
             --base-url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" \
             --out dist --strict
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/upload-artifact@v4
         with:
-          # Enable Pages with the Actions build type on the first run, so the site can be
-          # published without a manual visit to the repository settings.
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
+          name: site
           path: dist
+          retention-days: 1
 
-  deploy:
+  publish:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # Publishing writes the gh-pages branch, so this job needs write access the build job does not.
+    permissions:
+      contents: write
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+
+      - name: Push the export to gh-pages
+        working-directory: dist
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git init -q
+          git checkout -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Publish site from ${GITHUB_SHA::7}"
+          # The branch is generated content rebuilt from scratch each run, so it is replaced
+          # rather than appended to.
+          git push -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          echo "Published to https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"

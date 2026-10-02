@@ -33,12 +33,15 @@ PYTHONPATH=src python ops/automate.py --once --full
 ## Publish to GitHub Pages
 
 GitHub Pages serves static files, so the dynamic app cannot run there. `.github/workflows/pages.yml`
-runs the intelligence layer in the runner, freezes the public site and deploys it:
+runs the intelligence layer in the runner, freezes the public site and publishes it:
 
 **https://daveok16-arch.github.io/research-lab/**
 
 The workflow runs on every push to `main`, daily on a schedule, and on manual dispatch (with
-`max_pages` or `full` inputs). It tests, ingests, assembles, indexes, exports and deploys.
+`max_pages` or `full` inputs). The `build` job tests, ingests, assembles, indexes, exports and
+uploads the site as an artifact; the `publish` job pushes that artifact to the `gh-pages` branch,
+which is what Pages serves. Publishing by branch rather than by the Pages API keeps the build job
+read-only and needs no repository-settings change.
 
 `ops/export_static.py` does the freezing. It walks `sitemap.xml` — the app's own list of canonical
 URLs — renders each through the app's test client, and follows same-site links to pick up pages the
@@ -51,6 +54,9 @@ PYTHONPATH=src python ops/export_static.py \
 ```
 
 `--strict` fails the build if any internal link or asset resolves to no exported file.
+
+The export root maps to the site root on disk, so static assets land at `dist/static` and are
+served at `<base-url>/static`. Account routes are not exported; this is a public read-only mirror.
 
 ## Stop
 
