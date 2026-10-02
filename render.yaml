@@ -40,6 +40,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+      # The package is not pip-installed; the build only installs requirements.txt. src/ is the
+      # import root, so setting it here makes the app and the Render Shell agree — the admin
+      # command in the docs runs there without a prefix.
+      - key: PYTHONPATH
+        value: src
       # Signs sessions. Generated once by Render and kept, so logins survive a redeploy.
       - key: SECRET_KEY
         generateValue: true
