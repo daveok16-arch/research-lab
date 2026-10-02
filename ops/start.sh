@@ -28,16 +28,33 @@ fi
 # A host that assigns a port must win over the local default.
 if [ "$FOREGROUND" = "1" ]; then
     export PORT="${PORT:?PORT must be set by the platform}"
-    export OPPINTEL_DATA_DIR="${OPPINTEL_DATA_DIR:-/var/data}"
 else
     export PORT="${PORT:-12000}"
-    export OPPINTEL_DATA_DIR="${OPPINTEL_DATA_DIR:-$REPO_ROOT/data}"
+fi
+
+# Default to the checkout's own data directory, which always exists and is writable. A host with
+# a mounted disk sets OPPINTEL_DATA_DIR to the mount path to keep state across a redeploy.
+export OPPINTEL_DATA_DIR="${OPPINTEL_DATA_DIR:-$REPO_ROOT/data}"
+
+if ! mkdir -p "$OPPINTEL_DATA_DIR" 2>/dev/null || [ ! -w "$OPPINTEL_DATA_DIR" ]; then
+    echo "error: cannot write to OPPINTEL_DATA_DIR=$OPPINTEL_DATA_DIR" >&2
+    echo "  On Render this means the disk is not attached at that path. Free instances have no" >&2
+    echo "  disk, so the mount path is never created. Unset OPPINTEL_DATA_DIR to use the" >&2
+    echo "  checkout, or attach a disk and point this at its mount path." >&2
+    exit 1
 fi
 
 export OPPINTEL_DB="${OPPINTEL_DB:-$OPPINTEL_DATA_DIR/oppintel.db}"
 export BASE_URL="${BASE_URL:-http://127.0.0.1:${PORT}}"
 
-mkdir -p "$OPPINTEL_DATA_DIR"
+# The database may be pointed outside OPPINTEL_DATA_DIR, so check its directory too: sqlite
+# creates the file, not the directory, and a missing mount path fails as a raw traceback.
+DB_DIR="$(dirname "$OPPINTEL_DB")"
+if ! mkdir -p "$DB_DIR" 2>/dev/null || [ ! -w "$DB_DIR" ]; then
+    echo "error: cannot write to the database directory $DB_DIR" >&2
+    echo "  Unset OPPINTEL_DB and OPPINTEL_DATA_DIR to fall back to the checkout's data/" >&2
+    exit 1
+fi
 
 # Both commands are idempotent, so this is safe on an existing database.
 python -m oppintel.cli initdb >/dev/null

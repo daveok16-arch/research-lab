@@ -25,12 +25,17 @@ PORT=12001 REFRESH_SECONDS=3600 MAX_PAGES=5 ops/start.sh
 ```
 
 On a container host the same script runs in the foreground instead — set `FOREGROUND=1`,
-or let it detect `$RENDER`. It then binds the platform's `$PORT` and writes to
-`$OPPINTEL_DATA_DIR` (the mounted disk) so the database survives a redeploy:
+or let it detect `$RENDER`. It then binds the platform's `$PORT`. With a disk attached, set
+`OPPINTEL_DATA_DIR` to its mount path so the database survives a redeploy:
 
 ```bash
 RENDER=true PORT=10000 OPPINTEL_DATA_DIR=/var/data ops/start.sh
 ```
+
+Without `OPPINTEL_DATA_DIR` it writes to the checkout's `data/`. That path always exists, which
+is what makes the Free plan (no disk) start rather than fail on a missing `/var/data`. A path that
+is configured but not writable is reported as such and exits 1, rather than surfacing as a sqlite
+traceback.
 
 `ops/stop.sh` stops the background daemon; it has nothing to do in the foreground case,
 where the platform owns the process.

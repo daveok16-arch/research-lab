@@ -127,9 +127,15 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 
 * `render.yaml` is the blueprint for the persistent, always-on deployment. It runs the app and
   its refresh loop in one service — no separate cron, worker or scheduler.
-* **A disk is required.** SQLite is a file and the assembled dataset is the app's value, and
-  Render's container filesystem is ephemeral. The disk mounts at `/var/data` and
-  `OPPINTEL_DATA_DIR` points at it. Without the disk, every deploy starts from an empty database.
+* **A disk is what keeps the data, and it needs a paid instance type.** SQLite is a file and the
+  assembled dataset is the app's value, and Render's container filesystem is ephemeral. With a
+  disk mounted at `/var/data` and `OPPINTEL_DATA_DIR` pointing at it, a deploy replaces the code,
+  not the data. Without one — the Free plan has none — every deploy starts from an empty database
+  and the refresh loop has to refill it.
+* **Never hardcode the mount path as a default.** The blueprint ships `plan: free` with the disk
+  block commented out, because a Blueprint that declares a disk on a Free instance does not apply
+  at all. `ops/start.sh` therefore defaults `OPPINTEL_DATA_DIR` to the checkout's `data/`, which
+  is always writable, and fails with a named error if an explicitly configured path is not.
 * **One instance only.** A Render disk attaches to a single instance, and a second instance
   would run a second refresh loop against the same file. Scaling out means moving the database to
   a networked store first, not adding instances.

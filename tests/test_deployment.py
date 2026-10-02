@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import pathlib
 
 from oppintel.db import Database
 
@@ -131,3 +132,87 @@ def test_cli_database_path_defaults_to_the_repo(monkeypatch):
         assert reloaded.DEFAULT_DB == DATA_DIR / "oppintel.db"
     finally:
         importlib.reload(cli)
+
+
+# --- the start script chooses a writable data directory -------------------------
+
+def _run_start(tmp_path, env_overrides, monkeypatch):
+    """Run ops/start.sh with `python`/`initdb` stubbed out, and report how it chose its paths.
+
+    The script is the thing that broke on a host without a disk, so the assertions below are about
+    its own behaviour, not the app's. Stubbing the two init commands keeps the test to the path
+    logic: they are the first thing the script runs, and they are not what is under test here.
+    """
+    import os
+    import subprocess
+
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    # A `python` that records the env it was handed and exits successfully, so the script reaches
+    # its path decisions without needing a real database.
+    (stub / "python").write_text(
+        "#!/usr/bin/env bash\n"
+        "echo \"DATA_DIR=$OPPINTEL_DATA_DIR\"\n"
+        "echo \"DB=$OPPINTEL_DB\"\n"
+        "exit 0\n"
+    )
+    (stub / "python").chmod(0o755)
+
+    env = {
+        "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+    }
+    env.update(env_overrides)
+    for key in ("PYTHONPATH", "SECRET_KEY", "OPPINTEL_DATA_DIR", "OPPINTEL_DB", "RENDER", "PORT"):
+        monkeypatch.delenv(key, raising=False)
+    return subprocess.run(
+        ["bash", str(repo / "ops" / "start.sh")],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(repo),
+        timeout=60,
+    )
+
+
+def test_start_script_does_not_assume_a_mounted_disk(tmp_path, monkeypatch):
+    """A host with no disk must still start: `/var/data` does not exist on a Free instance.
+
+    This is the failure that took a deploy down — the script defaulted the data directory to the
+    mount path, so the first `mkdir` hit a read-only filesystem and the process exited.
+    """
+    result = _run_start(tmp_path, {"RENDER": "true", "PORT": "10000"}, monkeypatch)
+
+    assert result.returncode == 0, result.stderr
+    assert "DATA_DIR=" in result.stdout
+    # It falls back to the checkout's own data/ rather than the mount path.
+    assert "/var/data" not in result.stdout
+
+
+def test_start_script_fails_loudly_when_the_data_directory_is_unwritable(tmp_path, monkeypatch):
+    """An explicitly configured, unwritable path is a configuration error, not a traceback."""
+    result = _run_start(
+        tmp_path,
+        {"RENDER": "true", "PORT": "10000", "OPPINTEL_DATA_DIR": "/proc/definitely-not-writable"},
+        monkeypatch,
+    )
+
+    assert result.returncode == 1
+    assert "cannot write to OPPINTEL_DATA_DIR" in result.stderr
+    # The message names the cause, so the operator is not left reading a sqlite traceback.
+    assert "disk is not attached" in result.stderr
+
+
+def test_start_script_honours_a_writable_data_directory(tmp_path, monkeypatch):
+    """The paid path: a mounted disk is used as given, and the database goes inside it."""
+    disk = tmp_path / "mnt"
+    result = _run_start(
+        tmp_path,
+        {"RENDER": "true", "PORT": "10000", "OPPINTEL_DATA_DIR": str(disk)},
+        monkeypatch,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"DATA_DIR={disk}" in result.stdout
+    assert f"DB={disk}/oppintel.db" in result.stdout

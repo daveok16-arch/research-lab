@@ -456,7 +456,7 @@ the authenticated user id, so an id from another account resolves to nothing.
 |---|---|---|---|
 | `SECRET_KEY` | **Yes in production** | random per process | Session signing. Without it, sessions do not survive a restart |
 | `OPPINTEL_DB` | No | `data/oppintel.db` | Database path. The CLI reads it, so a host can point the pipeline at a mounted disk |
-| `OPPINTEL_DATA_DIR` | No | `data/` | Where the database, logs and refresh state live. Set it to the mount path on a host with a disk |
+| `OPPINTEL_DATA_DIR` | No | `data/` | Where the database, logs and refresh state live. Set it to the mount path on a host with a disk — a path that does not exist (`/var/data` with no disk) fails the start |
 | `BASE_URL` | Yes for SEO | empty | Public origin for canonical URLs, Open Graph and the sitemap |
 | `SESSION_COOKIE_SECURE` | No | on unless debug | Secure cookie flag |
 | `FLASK_DEBUG` | No | `false` | Debug mode. Never enable in production |
@@ -601,15 +601,23 @@ idempotent because raw records are keyed by content hash.
 reads the file. The service runs the app *and* its own refresh loop, so there is no separate cron
 job, worker or scheduler to configure.
 
-Two properties matter, and the blueprint sets both:
+It ships on the **Free plan**, which has no persistent disk — the service starts and the refresh
+loop fills the site, but a deploy replaces the database. That is fine for a first look. To keep
+the assembled dataset, move to a paid instance type (`starter` or higher) and enable the disk
+block at the bottom of `render.yaml`:
 
 * **A persistent disk.** SQLite is a file and the assembled dataset is the app's whole value, so
-  the database must outlive a deploy — and Render's container filesystem does not. The disk is
-  mounted at `/var/data`, and `OPPINTEL_DATA_DIR` points at it. A deploy replaces the code, not
-  the data.
+  the database must outlive a deploy — and Render's container filesystem does not. Mount the disk
+  at `/var/data`, uncomment `OPPINTEL_DATA_DIR` and `OPPINTEL_DB`, and point them at it. A deploy
+  then replaces the code, not the data.
 * **One instance.** A Render disk attaches to a single instance, and a second instance would run
   a second refresh loop against the same file. Scaling out needs the database moved to a networked
   store first, not more instances.
+
+A Blueprint that declares a disk on a Free instance does not apply, which is why the disk is
+commented out by default rather than merely documented. Without a disk, leave `OPPINTEL_DATA_DIR`
+unset: the app writes to the checkout's own `data/` directory, which is writable. Pointing it at
+`/var/data` with no disk attached is the one way to break the start — that path is never created.
 
 Render injects `RENDER=true` and a `PORT`; `ops/start.sh` detects the first, runs in the
 foreground, and binds the second. The health check path is `/healthz`, which returns `503` only
@@ -629,7 +637,7 @@ site — the container serves the live app and refreshes its own data on the sch
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -q      # 667 tests
+PYTHONPATH=src python -m pytest tests/ -q      # 670 tests
 ```
 
 | Suite | Covers |
