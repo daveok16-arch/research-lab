@@ -132,6 +132,30 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
 * GitHub Pages is a mirror, not a second implementation. Account routes (sign-in, dashboard,
   pipeline) are not exported and their links are dead there by design.
 
+## Render deployment
+
+* `render.yaml` is the blueprint for the persistent, always-on deployment. It runs the app and
+  its refresh loop in one service — no separate cron, worker or scheduler.
+* **A disk is required.** SQLite is a file and the assembled dataset is the app's value, and
+  Render's container filesystem is ephemeral. The disk mounts at `/var/data` and
+  `OPPINTEL_DATA_DIR` points at it. Without the disk, every deploy starts from an empty database.
+* **One instance only.** A Render disk attaches to a single instance, and a second instance
+  would run a second refresh loop against the same file. Scaling out means moving the database to
+  a networked store first, not adding instances.
+* `ops/start.sh` has two modes. Locally it backgrounds the daemon and writes a PID file; on a
+  container host (`$RENDER`, or `FOREGROUND=1`) it `exec`s the supervisor in the foreground and
+  binds the platform's `$PORT`. Render requires the foreground mode — a backgrounded process
+  looks like a crashed service.
+* `/healthz` is the platform's health check. It returns 503 **only** when the database is
+  unreachable. An empty database is `200` with `"status": "empty"` on purpose: a first deploy
+  starts empty and the refresh loop fills it, so a 503 there would only cause a restart loop.
+* `OPPINTEL_DB` is read by the CLI (`oppintel.cli.DEFAULT_DB`), so the pipeline honours a mounted
+  disk without every command repeating `--db`. The web layer reads `OPPINTEL_DB` through
+  `AppConfig.database_path`. Point both at the same file.
+* `/healthz` is operational, not content: it is in the robots disallow list and excluded from the
+  static export (`ACCOUNT_PREFIXES` in `ops/export_static.py`). Add any new operational route to
+  both, or the strict export link check will try to freeze it.
+
 ## Gotcha list
 
 * A dict key named `items` collides with `dict.items` in Jinja. Use another name

@@ -28,6 +28,7 @@ so the product states the procurement status it can actually evidence and no mor
 - [Plans and entitlement](#plans-and-entitlement)
 - [Security](#security)
 - [Production deployment](#production-deployment)
+  - [Deploying to Render](#deploying-to-render)
 - [Testing](#testing)
 - [Adding a market or trade](#adding-a-market-or-trade)
 - [Known limitations](#known-limitations)
@@ -454,14 +455,18 @@ the authenticated user id, so an id from another account resolves to nothing.
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `SECRET_KEY` | **Yes in production** | random per process | Session signing. Without it, sessions do not survive a restart |
-| `OPPINTEL_DB` | No | `data/oppintel.db` | Database path |
+| `OPPINTEL_DB` | No | `data/oppintel.db` | Database path. The CLI reads it, so a host can point the pipeline at a mounted disk |
+| `OPPINTEL_DATA_DIR` | No | `data/` | Where the database, logs and refresh state live. Set it to the mount path on a host with a disk |
 | `BASE_URL` | Yes for SEO | empty | Public origin for canonical URLs, Open Graph and the sitemap |
 | `SESSION_COOKIE_SECURE` | No | on unless debug | Secure cookie flag |
 | `FLASK_DEBUG` | No | `false` | Debug mode. Never enable in production |
 | `CSRF_ENABLED` | No | on unless debug | CSRF, rate limiting and response headers |
 | `FREE_VIEW_LIMIT` | No | `0` (disabled) | Distinct opportunities a free account may view |
 | `LOG_LEVEL` | No | `INFO` | Log verbosity |
-| `HOST`, `PORT` | No | `127.0.0.1`, `5000` | Development server bind address |
+| `REFRESH_SECONDS` | No | `21600` (6h) | Seconds between automatic refresh passes |
+| `MAX_PAGES` | No | `3` | Pages fetched per source on a recurring refresh |
+| `WEB_WORKERS`, `WEB_THREADS` | No | `2`, `4` | WSGI worker and thread counts. SQLite serialises writers, so a fractional CPU wants one worker |
+| `HOST`, `PORT` | No | `127.0.0.1`, `5000` | Development server bind address. A hosting platform sets `PORT` |
 
 `CSRF_ENABLED` follows the same convention as the secure-cookie flag: it defaults on, and off
 only when `FLASK_DEBUG` is set, so a real deployment is protected unless someone deliberately
@@ -590,12 +595,41 @@ never alters or drops an intelligence table.
 A partial ingestion is safe: the pipeline commits every 250 permits, and re-running is
 idempotent because raw records are keyed by content hash.
 
+### Deploying to Render
+
+`render.yaml` is a ready blueprint: **New → Blueprint**, point Render at this repository, and it
+reads the file. The service runs the app *and* its own refresh loop, so there is no separate cron
+job, worker or scheduler to configure.
+
+Two properties matter, and the blueprint sets both:
+
+* **A persistent disk.** SQLite is a file and the assembled dataset is the app's whole value, so
+  the database must outlive a deploy — and Render's container filesystem does not. The disk is
+  mounted at `/var/data`, and `OPPINTEL_DATA_DIR` points at it. A deploy replaces the code, not
+  the data.
+* **One instance.** A Render disk attaches to a single instance, and a second instance would run
+  a second refresh loop against the same file. Scaling out needs the database moved to a networked
+  store first, not more instances.
+
+Render injects `RENDER=true` and a `PORT`; `ops/start.sh` detects the first, runs in the
+foreground, and binds the second. The health check path is `/healthz`, which returns `503` only
+when the database is unreachable — an empty first deploy reports `"status": "empty"` with a `200`,
+because restarting would not fill it and a `503` would only produce a restart loop. On first boot
+the refresh loop ingests and the site populates; nothing else is required.
+
+Set `BASE_URL` to the URL Render assigns (or your custom domain) so canonical tags and the
+sitemap point at the real host. `SECRET_KEY` is generated once by Render and kept, so logins
+survive a redeploy.
+
+The GitHub Pages workflow is the complement, not a duplicate: a read-only static snapshot for
+crawlers and for a URL that does not depend on the service staying up.
+
 ---
 
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -q      # 655 tests
+PYTHONPATH=src python -m pytest tests/ -q      # 667 tests
 ```
 
 | Suite | Covers |
@@ -612,6 +646,7 @@ PYTHONPATH=src python -m pytest tests/ -q      # 655 tests
 | `test_alerts.py` | Event-driven alerts, watch scoping, no-change-means-no-alert, alert integrity |
 | `test_security.py` | CSRF, rate limiting, headers, privilege escalation, IDOR, open redirect, operator area |
 | `test_entitlements.py` | Plan/subscription/entitlement separation, no self-service upgrade, lapsed access |
+| `test_deployment.py` | Health-check contract, empty-vs-unusable database, environment-configured database path |
 | `test_acceptance.py` | The full lifecycle from source to report against real records |
 | `test_seo_keywords.py` | Keyword map coherence, indexation contract, quality gate, internal linking, content, analytics funnel, SEO report |
 | `test_classify.py`, `test_normalize.py`, `test_provenance.py`, … | The intelligence engine |

@@ -24,6 +24,17 @@ pipeline is idempotent, so nothing is fetched twice. Override with environment v
 PORT=12001 REFRESH_SECONDS=3600 MAX_PAGES=5 ops/start.sh
 ```
 
+On a container host the same script runs in the foreground instead — set `FOREGROUND=1`,
+or let it detect `$RENDER`. It then binds the platform's `$PORT` and writes to
+`$OPPINTEL_DATA_DIR` (the mounted disk) so the database survives a redeploy:
+
+```bash
+RENDER=true PORT=10000 OPPINTEL_DATA_DIR=/var/data ops/start.sh
+```
+
+`ops/stop.sh` stops the background daemon; it has nothing to do in the foreground case,
+where the platform owns the process.
+
 For a one-off full backfill of every page of every source:
 
 ```bash

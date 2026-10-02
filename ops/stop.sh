@@ -5,7 +5,7 @@ set -u
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-PID_FILE="data/automation.pid"
+PID_FILE="${OPPINTEL_DATA_DIR:-$REPO_ROOT/data}/automation.pid"
 if [ ! -f "$PID_FILE" ]; then
     echo "no automation pid file; nothing to stop"
     exit 0

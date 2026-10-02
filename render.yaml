@@ -1,0 +1,63 @@
+# Render blueprint for the oppintel web service.
+#
+# Deploy with "New > Blueprint" and point Render at this repository; it reads this file.
+# The same container also runs the online-search refresh loop, so there is no separate worker,
+# cron job or external scheduler to configure.
+#
+# Two properties matter for this app specifically:
+#
+#   * A persistent disk. SQLite is a file, and the app's whole value is the assembled dataset,
+#     so the database has to outlive a deploy. Render's container filesystem does not, so the
+#     database lives on a disk mounted at /var/data and OPPINTEL_DATA_DIR points at it.
+#   * A single instance. A Render disk attaches to exactly one service instance, and a second
+#     instance would run a second refresh loop against the same file. Scaling this service
+#     horizontally would need the database moved to a networked store first.
+#
+# This blueprint is the persistent, always-on deployment. The GitHub Pages workflow is the
+# complementary, read-only mirror: a static snapshot published on a schedule with no server.
+
+services:
+  - type: web
+    name: oppintel
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: main
+    # Render injects RENDER=true; ops/start.sh detects it and runs in the foreground on $PORT.
+    # It is idempotent, so it is safe on every boot against the existing database.
+    buildCommand: pip install -r requirements.txt
+    startCommand: ops/start.sh
+    healthCheckPath: /healthz
+    # One instance, because the disk cannot be shared and two refresh loops must not race.
+    numInstances: 1
+    autoDeploy: true
+    disk:
+      name: oppintel-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.0"
+      # Signs sessions. Generated once by Render and kept, so logins survive a redeploy.
+      - key: SECRET_KEY
+        generateValue: true
+      # The database and the refresh state live on the disk, not in the checkout.
+      - key: OPPINTEL_DATA_DIR
+        value: /var/data
+      - key: OPPINTEL_DB
+        value: /var/data/oppintel.db
+      # Absolute canonical links, Open Graph tags and the sitemap. Set this to the service URL
+      # Render assigns (or a custom domain) so canonical tags point at the real host.
+      - key: BASE_URL
+        sync: false
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: CSRF_ENABLED
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      # The refresh loop: fetch the newest pages of every source every six hours.
+      - key: REFRESH_SECONDS
+        value: "21600"
+      - key: MAX_PAGES
+        value: "3"

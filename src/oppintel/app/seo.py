@@ -711,6 +711,7 @@ class SeoBuilder:
             "/tags",
             "/admin",
             "/api",
+            "/healthz",
         ):
             lines.append(f"Disallow: {path}")
         lines.append("")

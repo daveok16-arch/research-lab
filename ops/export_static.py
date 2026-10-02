@@ -28,11 +28,13 @@ from urllib.parse import urlparse
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-#: Routes that only exist for a signed-in session. They are not exported and their links are
-#: expected to be dead on the static mirror, so the link check ignores them.
+#: Routes that only exist for a signed-in session, or that are operational rather than content.
+#: They are not exported and their links are expected to be dead on the static mirror, so the
+#: link check ignores them.
 ACCOUNT_PREFIXES = (
     "/signin", "/signup", "/signout", "/saved", "/preferences", "/dashboard",
     "/watching", "/my-pipeline", "/alerts", "/notes", "/tags", "/admin", "/api",
+    "/healthz",
 )
 
 SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
