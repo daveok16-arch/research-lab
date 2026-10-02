@@ -457,7 +457,7 @@ the authenticated user id, so an id from another account resolves to nothing.
 | `SECRET_KEY` | **Yes in production** | random per process | Session signing. Without it, sessions do not survive a restart |
 | `OPPINTEL_DB` | No | `data/oppintel.db` | Database path. The CLI reads it, so a host can point the pipeline at a mounted disk |
 | `OPPINTEL_DATA_DIR` | No | `data/` | Where the database, logs and refresh state live. Set it to the mount path on a host with a disk — a path that does not exist (`/var/data` with no disk) fails the start |
-| `BASE_URL` | Yes for SEO | empty | Public origin for canonical URLs, Open Graph and the sitemap |
+| `BASE_URL` | No on Render | empty | Public origin for canonical URLs, Open Graph and the sitemap. Falls back to `RENDER_EXTERNAL_URL` on Render |
 | `SESSION_COOKIE_SECURE` | No | on unless debug | Secure cookie flag |
 | `FLASK_DEBUG` | No | `false` | Debug mode. Never enable in production |
 | `CSRF_ENABLED` | No | on unless debug | CSRF, rate limiting and response headers |
@@ -532,8 +532,8 @@ documented production deployment puts a real limiter in front of the app.
    pip install -r requirements.txt gunicorn
    ```
 
-2. **Configure the environment.** Set at minimum `SECRET_KEY` and `BASE_URL`. Leave
-   `FLASK_DEBUG` unset.
+2. **Configure the environment.** Set at minimum `SECRET_KEY`. Set `BASE_URL` to your public
+   origin, or leave it unset on Render, which uses `RENDER_EXTERNAL_URL`. Leave `FLASK_DEBUG` unset.
 
 3. **Initialise the database.**
    ```bash
@@ -625,9 +625,13 @@ when the database is unreachable — an empty first deploy reports `"status": "e
 because restarting would not fill it and a `503` would only produce a restart loop. On first boot
 the refresh loop ingests and the site populates; nothing else is required.
 
-Set `BASE_URL` to the URL Render assigns (or your custom domain) so canonical tags and the
-sitemap point at the real host. `SECRET_KEY` is generated once by Render and kept, so logins
-survive a redeploy.
+`BASE_URL` is the public origin used for canonical tags, Open Graph tags and the sitemap. You
+usually do not need to set it: on Render the app falls back to `RENDER_EXTERNAL_URL`, the
+service's own `onrender.com` URL. Set `BASE_URL` only to override that, e.g. for a custom domain.
+Leaving both unset is not a failure — pages then emit relative canonical paths rather than
+guessing a domain — but it does mean no absolute URLs in the sitemap, so a deployed service
+should always end up with one or the other. `SECRET_KEY` is generated once by Render and kept, so
+logins survive a redeploy.
 
 The service is the single deployment. There is no static mirror and no CI job that publishes the
 site — the container serves the live app and refreshes its own data on the schedule above.
@@ -637,7 +641,7 @@ site — the container serves the live app and refreshes its own data on the sch
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -q      # 670 tests
+PYTHONPATH=src python -m pytest tests/ -q      # 673 tests
 ```
 
 | Suite | Covers |

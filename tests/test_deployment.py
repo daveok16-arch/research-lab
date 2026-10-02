@@ -155,6 +155,7 @@ def _run_start(tmp_path, env_overrides, monkeypatch):
         "#!/usr/bin/env bash\n"
         "echo \"DATA_DIR=$OPPINTEL_DATA_DIR\"\n"
         "echo \"DB=$OPPINTEL_DB\"\n"
+        "echo \"BASE_URL=$BASE_URL\"\n"
         "exit 0\n"
     )
     (stub / "python").chmod(0o755)
@@ -166,6 +167,7 @@ def _run_start(tmp_path, env_overrides, monkeypatch):
     env.update(env_overrides)
     for key in ("PYTHONPATH", "SECRET_KEY", "OPPINTEL_DATA_DIR", "OPPINTEL_DB", "RENDER", "PORT"):
         monkeypatch.delenv(key, raising=False)
+    env.setdefault("RENDER_EXTERNAL_URL", "")
     return subprocess.run(
         ["bash", str(repo / "ops" / "start.sh")],
         capture_output=True,
@@ -216,3 +218,55 @@ def test_start_script_honours_a_writable_data_directory(tmp_path, monkeypatch):
     assert result.returncode == 0, result.stderr
     assert f"DATA_DIR={disk}" in result.stdout
     assert f"DB={disk}/oppintel.db" in result.stdout
+
+
+# --- the public origin comes from the host --------------------------------------
+
+def test_start_script_prefers_the_platform_url_over_loopback(tmp_path, monkeypatch):
+    """A deployed host must not advertise http://127.0.0.1:<port> as its canonical origin.
+
+    Render injects RENDER_EXTERNAL_URL. Ignoring it put a loopback address in every canonical tag
+    and all 88 sitemap entries on a live service.
+    """
+    result = _run_start(
+        tmp_path,
+        {
+            "RENDER": "true",
+            "PORT": "10000",
+            "RENDER_EXTERNAL_URL": "https://research-lab-9b9j.onrender.com",
+        },
+        monkeypatch,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "BASE_URL=https://research-lab-9b9j.onrender.com" in result.stdout
+    assert "127.0.0.1" not in result.stdout
+
+
+def test_start_script_explicit_base_url_wins(tmp_path, monkeypatch):
+    """An operator-set BASE_URL (a custom domain) takes precedence over the platform default."""
+    result = _run_start(
+        tmp_path,
+        {
+            "RENDER": "true",
+            "PORT": "10000",
+            "BASE_URL": "https://hvac.example.com",
+            "RENDER_EXTERNAL_URL": "https://research-lab-9b9j.onrender.com",
+        },
+        monkeypatch,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "BASE_URL=https://hvac.example.com" in result.stdout
+
+
+def test_start_script_falls_back_to_loopback_only_off_platform(tmp_path, monkeypatch):
+    """Loopback is the last resort, which is what makes `ops/start.sh` usable in a bare shell.
+
+    Uses FOREGROUND=1 rather than the local branch: the local branch backgrounds the daemon, so
+    the stub's output goes to automation.out and would not be observable here.
+    """
+    result = _run_start(tmp_path, {"FOREGROUND": "1", "PORT": "12000"}, monkeypatch)
+
+    assert result.returncode == 0, result.stderr
+    assert "BASE_URL=http://127.0.0.1:12000" in result.stdout

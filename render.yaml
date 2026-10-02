@@ -36,8 +36,9 @@ services:
       # Signs sessions. Generated once by Render and kept, so logins survive a redeploy.
       - key: SECRET_KEY
         generateValue: true
-      # Absolute canonical links, Open Graph tags and the sitemap. Set this to the service URL
-      # Render assigns (or a custom domain) so canonical tags point at the real host.
+      # Absolute canonical links, Open Graph tags and the sitemap. Only needed to override the
+      # origin: without it the app uses RENDER_EXTERNAL_URL, and this takes precedence over that.
+      # Set it for a custom domain.
       - key: BASE_URL
         sync: false
       - key: SESSION_COOKIE_SECURE
