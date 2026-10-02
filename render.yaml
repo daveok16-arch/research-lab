@@ -13,8 +13,8 @@
 #     instance would run a second refresh loop against the same file. Scaling this service
 #     horizontally would need the database moved to a networked store first.
 #
-# This blueprint is the persistent, always-on deployment. The GitHub Pages workflow is the
-# complementary, read-only mirror: a static snapshot published on a schedule with no server.
+# This service is the single deployment. There is no static mirror and no CI job that publishes
+# the site: the container serves the live app and refreshes its own data.
 
 services:
   - type: web

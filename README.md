@@ -621,8 +621,8 @@ Set `BASE_URL` to the URL Render assigns (or your custom domain) so canonical ta
 sitemap point at the real host. `SECRET_KEY` is generated once by Render and kept, so logins
 survive a redeploy.
 
-The GitHub Pages workflow is the complement, not a duplicate: a read-only static snapshot for
-crawlers and for a URL that does not depend on the service staying up.
+The service is the single deployment. There is no static mirror and no CI job that publishes the
+site — the container serves the live app and refreshes its own data on the schedule above.
 
 ---
 
