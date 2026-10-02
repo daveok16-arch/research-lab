@@ -24,39 +24,22 @@ pipeline is idempotent, so nothing is fetched twice. Override with environment v
 PORT=12001 REFRESH_SECONDS=3600 MAX_PAGES=5 ops/start.sh
 ```
 
+On a container host the same script runs in the foreground instead — set `FOREGROUND=1`,
+or let it detect `$RENDER`. It then binds the platform's `$PORT` and writes to
+`$OPPINTEL_DATA_DIR` (the mounted disk) so the database survives a redeploy:
+
+```bash
+RENDER=true PORT=10000 OPPINTEL_DATA_DIR=/var/data ops/start.sh
+```
+
+`ops/stop.sh` stops the background daemon; it has nothing to do in the foreground case,
+where the platform owns the process.
+
 For a one-off full backfill of every page of every source:
 
 ```bash
 PYTHONPATH=src python ops/automate.py --once --full
 ```
-
-## Publish to GitHub Pages
-
-GitHub Pages serves static files, so the dynamic app cannot run there. `.github/workflows/pages.yml`
-runs the intelligence layer in the runner, freezes the public site and publishes it:
-
-**https://daveok16-arch.github.io/research-lab/**
-
-The workflow runs on every push to `main`, daily on a schedule, and on manual dispatch (with
-`max_pages` or `full` inputs). The `build` job tests, ingests, assembles, indexes, exports and
-uploads the site as an artifact; the `publish` job pushes that artifact to the `gh-pages` branch,
-which is what Pages serves. Publishing by branch rather than by the Pages API keeps the build job
-read-only and needs no repository-settings change.
-
-`ops/export_static.py` does the freezing. It walks `sitemap.xml` — the app's own list of canonical
-URLs — renders each through the app's test client, and follows same-site links to pick up pages the
-sitemap omits (the report detail pages). Passing the project sub-path as `SCRIPT_NAME` makes
-`url_for` emit prefixed links, so the frozen pages resolve their own assets without an HTML rewrite.
-
-```bash
-PYTHONPATH=src python ops/export_static.py \
-    --base-url https://daveok16-arch.github.io/research-lab --out dist --strict
-```
-
-`--strict` fails the build if any internal link or asset resolves to no exported file.
-
-The export root maps to the site root on disk, so static assets land at `dist/static` and are
-served at `<base-url>/static`. Account routes are not exported; this is a public read-only mirror.
 
 ## Stop
 

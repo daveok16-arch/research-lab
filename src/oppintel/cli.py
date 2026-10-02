@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -22,7 +23,9 @@ from .config import DATA_DIR, load_sources
 from .connectors import connector_ids
 from .db import Database
 
-DEFAULT_DB = DATA_DIR / "oppintel.db"
+#: The database path. `OPPINTEL_DB` overrides the default so a host can point the pipeline at a
+#: mounted disk without every command repeating `--db`; an explicit `--db` still wins.
+DEFAULT_DB = Path(os.environ.get("OPPINTEL_DB") or (DATA_DIR / "oppintel.db"))
 
 
 def _configure_logging(verbose: bool) -> None:

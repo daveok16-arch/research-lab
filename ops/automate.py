@@ -41,10 +41,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
-DATA_DIR = REPO_ROOT / "data"
+
+#: Where runtime state lives — the database, the log and the schedule state file. `OPPINTEL_DATA_DIR`
+#: overrides it so a host with a mounted disk keeps state across a redeploy instead of writing into
+#: the (ephemeral) checkout.
+DATA_DIR = Path(os.environ.get("OPPINTEL_DATA_DIR") or (REPO_ROOT / "data"))
 STATE_FILE = DATA_DIR / "automation_state.json"
 LOG_FILE = DATA_DIR / "automation.log"
 WEB_LOG = DATA_DIR / "web.log"
+
+#: Worker and thread counts for the WSGI server. SQLite serializes writers, so a large worker
+#: count mostly adds lock contention; reads are concurrent and dominate, which is why a small
+#: worker count with a thread pool is the better shape. A host with a fractional CPU wants one
+#: worker, which is why both are overridable.
+WEB_WORKERS = os.environ.get("WEB_WORKERS", "2")
+WEB_THREADS = os.environ.get("WEB_THREADS", "4")
 
 DEFAULT_REFRESH_SECONDS = 6 * 60 * 60
 
@@ -156,7 +167,7 @@ def start_server() -> subprocess.Popen:
     return subprocess.Popen(
         [
             sys.executable, "-m", "gunicorn",
-            "--workers", "2", "--threads", "4",
+            "--workers", WEB_WORKERS, "--threads", WEB_THREADS,
             "--bind", f"{env['HOST']}:{env['PORT']}",
             "--access-logfile", "-", "--error-logfile", "-",
             "oppintel.app.wsgi:application",
@@ -219,6 +230,10 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true", help="also supervise the web server")
     parser.add_argument("--refresh-seconds", type=int, default=DEFAULT_REFRESH_SECONDS,
                         help="seconds between refresh passes (default 6h)")
+    parser.add_argument("--host", default=None,
+                        help="bind address for the web server (default $HOST or 0.0.0.0)")
+    parser.add_argument("--port", default=None,
+                        help="port for the web server (default $PORT or 12000)")
     parser.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES,
                         help=f"pages fetched per source (default {DEFAULT_MAX_PAGES})")
     parser.add_argument("--full", action="store_true",
@@ -226,6 +241,13 @@ def main() -> int:
     args = parser.parse_args()
 
     max_pages = None if args.full else args.max_pages
+
+    # The bind address is read from the environment by `start_server`, so an explicit flag is
+    # applied there rather than threaded through the supervisor loop.
+    if args.host is not None:
+        os.environ["HOST"] = args.host
+    if args.port is not None:
+        os.environ["PORT"] = str(args.port)
 
     if args.once:
         state = refresh_once(max_pages=max_pages)

@@ -19,6 +19,7 @@ from flask import (
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -691,6 +692,37 @@ def create_app(config: AppConfig | None = None) -> Flask:
     @app.route("/robots.txt")
     def robots() -> Any:
         return app.response_class(g.seo_builder.robots(), mimetype="text/plain")
+
+    @app.route("/healthz")
+    def healthz() -> Any:
+        """Liveness probe for the hosting platform.
+
+        A platform restarts a service that stops answering, so this has to distinguish a running
+        process from a usable one. The one condition worth a restart is an unreachable database,
+        which returns 503.
+
+        An *empty* database is deliberately not a failure. On a first deploy the disk starts
+        empty and the refresh loop fills it; restarting the process would not change that, so
+        returning 503 would only produce a restart loop. Emptiness is reported in the body and
+        the probe stays 200.
+
+        Reports counts and never content, so it discloses nothing about a project.
+        """
+        payload: dict[str, Any] = {"status": "ok", "database": str(cfg.database_path)}
+        try:
+            row = g.db.conn.execute(
+                "SELECT (SELECT COUNT(*) FROM project) AS projects,"
+                "       (SELECT COUNT(*) FROM permit) AS permits"
+            ).fetchone()
+            payload["projects"] = row["projects"]
+            payload["permits"] = row["permits"]
+            if not row["projects"]:
+                payload["status"] = "empty"
+        except Exception as exc:
+            payload["status"] = "database_unavailable"
+            log.warning("health check failed: %r", exc)
+            return jsonify(payload), 503
+        return jsonify(payload)
 
     # =====================================================================
     # Accounts

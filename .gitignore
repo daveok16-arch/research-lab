@@ -15,9 +15,6 @@ data/*.out
 data/*.pid
 data/automation_state.json
 
-# Static site export
-dist/
-
 # Python
 __pycache__/
 *.pyc
