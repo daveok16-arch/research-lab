@@ -59,6 +59,22 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
    The evidence field name comes from `TradeConfig.discovery`.
 4. **Relevance is not procurement.** A project relevant to HVAC is not an open bid. Only a
    source stating bid language yields `Confirmed open`, which today never happens.
+4b. **Discovery may widen; the trade claim may not.** Public discovery runs on the commercial
+   base (HIGH/MEDIUM and not known-closed), so a listing can carry no mechanical evidence at
+   all. Every listing therefore carries a trade-signal badge (`trade_signal`) stating what the
+   source supports — "Mechanical permit on file", "Mechanical evidence found", or "Trade not
+   verified". A record with no evidence is a commercial opportunity, never an HVAC one. The
+   gate is `TradeConfig.discovery.discover_commercial_base`; `mechanical_only=1` restores the
+   evidence-scoped view. Copy that claims every listing has documented evidence is a bug.
+4c. **Unknown procurement status is not closed.** `DISCOVERABLE_PROCUREMENT` includes
+   `NOT_VERIFIED`; only `CLOSED` is withheld from discovery. Collin CAD publishes no status, so
+   conflating the two hid every Collin County city.
+4d. **Negation is honoured in evidence matching, before and after the keyword.** `_is_negated`
+   rejects a keyword a preceding "no"/"without"/"no change to" rules out, and also one that its
+   own clause says is to "remain as-is" — "all existing mechanical, electrical, and plumbing
+   (MEP) systems are to remain as-is" is not a mechanical opportunity. A permit that says "no
+   mechanical, electrical, or plumbing work" yields no mechanical evidence. Do not revert this
+   to a plain substring or word-boundary match.
 5. **User workflow is not source status.** Pipeline stages are the account's labels, kept
    disjoint from `procurement.py` states. A test asserts the vocabularies do not overlap.
 6. **Every alert has an underlying event.** An alert points at a `project_change` row or a

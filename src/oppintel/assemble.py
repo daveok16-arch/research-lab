@@ -21,6 +21,7 @@ from .constants import (
 )
 from .models import Permit, Project, ProjectParty, normalize_address
 from .normalize import (
+    MechanicalSignal,
     commercial_candidate,
     detect_mechanical_signal,
     derive_project_type,
@@ -93,6 +94,24 @@ def _split_by_time_window(permits: list[Permit], window_days: int) -> list[Permi
     # Undated permits are attached to the dominant cluster only when they describe the
     # same building; otherwise they would introduce unrelated facts.
     return largest + undated if len(largest) == len(dated) else largest
+
+
+def _evidence_value(signal: MechanicalSignal) -> str:
+    """The stored evidence text for a mechanical signal.
+
+    Tier 1 is the permit type, so the excerpt is the whole of it. Tier 2 carries the deeper
+    markers: which field the keyword was found in and every trade keyword the text contained.
+    Those are recorded because the claim is only as strong as the text behind it, and a reader
+    should be able to see the text rather than take the tier on trust.
+    """
+    if signal.tier != 2:
+        return f"Tier {signal.tier}: {signal.excerpt}"
+    parts = [f"Tier 2: {signal.excerpt}"]
+    if signal.all_keywords:
+        parts.append("Keywords: " + ", ".join(signal.all_keywords))
+    if signal.source_field:
+        parts.append(f"Field: {signal.source_field}")
+    return " | ".join(parts)
 
 
 def assemble_project(
@@ -182,7 +201,7 @@ def assemble_project(
         project.mechanical_evidence_tier = best.tier
         assert_field(
             project, "mechanical_hvac_evidence",
-            f"Tier {best.tier}: {best.excerpt}",
+            _evidence_value(best),
             source_id=permit.source_id,
             source_name=source_name,
             source_url=permit.source_url,

@@ -47,11 +47,18 @@ services:
         value: "true"
       - key: LOG_LEVEL
         value: INFO
-      # The refresh loop: fetch the newest pages of every source every six hours.
+      # The refresh loop: fetch the newest pages of every source every six hours, doubling the
+      # page depth after each clean pass so older history is reached without one long request.
       - key: REFRESH_SECONDS
         value: "21600"
       - key: MAX_PAGES
         value: "3"
+      - key: GROW_BACKFILL
+        value: "1"
+      # Ceiling for the progressive backfill. 200 matches the connectors' own page limit, so the
+      # depth eventually covers the full source history.
+      - key: BACKFILL_MAX_PAGES
+        value: "200"
       # When a disk is attached, point the app at it so the database outlives a deploy. Leave
       # these unset without a disk: the app then writes to the checkout's own data/ directory,
       # which is writable, and a path like /var/data does not exist on a Free instance.

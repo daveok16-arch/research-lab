@@ -4,7 +4,7 @@
     <span class="badge badge-{{ project.classification | lower | replace('_','-') }}">
       {{ project.classification | replace('_',' ') }}
     </span>
-    <span class="badge badge-evidence">{{ project.evidence_label }}</span>
+    <span class="badge badge-evidence">{{ project.trade_signal or project.evidence_label }}</span>
     {% if project.procurement_status == 'Closed' %}
       <span class="badge badge-closed">Closed</span>
     {% endif %}

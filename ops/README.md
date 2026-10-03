@@ -16,13 +16,27 @@ This launches `ops/automate.py --serve`, which:
 2. runs the online-search pipeline every `REFRESH_SECONDS` (default 6 hours):
    `ingest` -> `assemble` -> `build-search-index` -> `monitor`.
 
-Each refresh fetches the newest `MAX_PAGES` pages (default 3) per source. Every
-connector orders newest-first, so a bounded fetch still covers recent permits, and the
-pipeline is idempotent, so nothing is fetched twice. Override with environment variables:
+Each refresh fetches the newest `MAX_PAGES` pages (default 3) per source, then **doubles that
+depth after every clean pass** until it reaches `BACKFILL_MAX_PAGES` (default 200, the
+connectors' own page limit). Every connector orders newest-first, so a bounded fetch still
+covers recent permits, and the pipeline is idempotent, so nothing is fetched twice.
+
+The doubling matters: a fixed `--max-pages 3` re-reads the same newest pages on every pass and
+never reaches older history. That is why a live instance sat at roughly 3k rows per source while
+a manual full run collected 196k. Growing the depth lets a service left running on a small
+interval walk back through the source history on its own, without one long request that the host
+might time out. A pass that fails does not widen — it is retried at the same width.
+
+Override with environment variables:
 
 ```bash
 PORT=12001 REFRESH_SECONDS=3600 MAX_PAGES=5 ops/start.sh
+GROW_BACKFILL=0 MAX_PAGES=10 ops/start.sh   # pin the depth instead of growing it
 ```
+
+`BACKFILL_MAX_PAGES` sets the ceiling. The recorded depth lives in
+`data/automation_state.json` under `backfill_pages`, so it survives a restart; delete that key
+(or the file) to start the backfill from `MAX_PAGES` again.
 
 On a container host the same script runs in the foreground instead — set `FOREGROUND=1`,
 or let it detect `$RENDER`. It then binds the platform's `$PORT`. With a disk attached, set

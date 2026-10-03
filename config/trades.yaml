@@ -25,6 +25,19 @@ trades:
       # The value that denotes the strongest form of evidence for this trade. Used for the
       # "mechanical permit on file" count, so that statistic is also configuration-driven.
       strong_evidence_value: 1
+      # Discover on the commercial base rather than on trade evidence alone.
+      #
+      # Why: only Fort Worth and Dallas publish mechanical scope. The Collin CAD feed carries no
+      # trade text at all, so every Collin County city (Plano, McKinney, Frisco, Allen, Celina,
+      # Wylie and others) has commercial permits and zero mechanical evidence. Gating discovery
+      # on evidence therefore hid 17 cities that the market actually covers, leaving a directory
+      # that read as two cities when the data held nineteen.
+      #
+      # This is safe only because every listing carries a trade-signal badge
+      # (`OpportunityService.trade_signal_label`), so a project with no evidence is shown as
+      # "Trade not verified" rather than as an HVAC opportunity. Widening the directory must
+      # never widen the claim. Set this to false to restore evidence-gated discovery.
+      discover_commercial_base: true
     seo:
       title: "Commercial HVAC Construction Opportunities"
       description: >

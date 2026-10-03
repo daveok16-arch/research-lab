@@ -120,6 +120,11 @@ def detect_quality_issues(db: Database, permits: list[Any]) -> int:
     trade = active_trade()
     field = (trade.discovery or {}).get("evidence_field")
     values = (trade.discovery or {}).get("evidence_values") or []
+    # Only meaningful while discovery is evidence-gated. On the commercial base a discoverable
+    # project without trade evidence is expected and is labelled "Trade not verified" on every
+    # listing, so flagging it would report the intended behaviour as a defect.
+    if (trade.discovery or {}).get("discover_commercial_base"):
+        return
     if field and values and field.isidentifier():
         placeholders = ",".join("?" for _ in values)
         rows = db.conn.execute(

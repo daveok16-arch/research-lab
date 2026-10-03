@@ -5,8 +5,8 @@
   <div class="wrap">
     <h1 style="font-size:1.6rem">{{ city_name }} Commercial {{ trade.short_label or trade.label }} Construction Opportunities</h1>
     <p class="lede" style="font-size:1rem">
-      Commercial construction projects in {{ city_name }}, {{ mkt.state }} with documented
-      mechanical evidence, compiled from public City permit records.
+      Commercial construction projects in {{ city_name }}, {{ mkt.state }}, compiled from
+      public permitting records. Each listing states the trade signal the record supports.
     </p>
     <div class="hero-cta">
       <a class="btn btn-primary" href="{{ url_for('opportunities', city=city_name) }}">
@@ -57,8 +57,8 @@
     <h4>About this page</h4>
     <p>
       Counts come from the current database. Records appear when a permit assembles into a
-      commercial project with documented mechanical evidence and an active procurement status.
-      Finished work is excluded.
+      commercial project. Each listing states the trade signal the record supports. Work known
+      to be finished is excluded.
     </p>
     <p>
       Permit evidence does not confirm that a project is currently accepting bids for any trade.

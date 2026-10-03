@@ -82,6 +82,18 @@ FIXTURE_PERMITS: list[dict] = [
          permit_type="Commercial Mechanical Permit", permit_subtype="commercial_mechanical",
          work_description="Mechanical remodel of spec suite", land_use="",
          job_value=1_100_000.0, permit_date=date(2026, 9, 11)),
+    # 6. Text-only mechanical evidence: no mechanical permit type, so this is tier 2 and the
+    #    evidence rests entirely on the work description.
+    dict(permit_number="T2", natural_key="T2", address="60 SCOPE ST",
+         permit_type="Commercial Building Permit", permit_subtype="commercial_building",
+         work_description="Interior tenant improvement with mechanical HVAC scope",
+         land_use="OFFICE BUILDING", job_value=750_000.0, permit_date=date(2026, 9, 8)),
+    # 7. Negation trap: the text names mechanical work in order to rule it out. A keyword match
+    #    that ignores the negation would claim mechanical scope the record explicitly denies.
+    dict(permit_number="N1", natural_key="N1", address="70 NOHVAC ST",
+         permit_type="Commercial Building Permit", permit_subtype="commercial_building",
+         work_description="Tenant improvement with no mechanical, electrical, or plumbing work",
+         land_use="OFFICE BUILDING", job_value=600_000.0, permit_date=date(2026, 9, 8)),
 ]
 
 

@@ -22,6 +22,58 @@ class MechanicalSignal:
     matched_keyword: str
     excerpt: str
     permit: Permit
+    #: Every trade keyword found in the permit text, in the order the trade config lists them.
+    #: The matched keyword is only the first; the rest are the depth behind the claim, and they
+    #: are what a reviewer reads to judge scope. Empty for Tier 1, where the permit type is the
+    #: whole of the evidence.
+    all_keywords: tuple[str, ...] = ()
+    #: The evidence field the keyword was found in: work_description, permit_type, land_use or
+    #: specific_use. A mechanical keyword in the work description describes the work; the same
+    #: word in a land-use code is a property attribute, which is weaker.
+    source_field: str | None = None
+
+
+#: A negation that governs a trade term. "NO MECHANICAL", "without mechanical or electrical",
+#: "no HVAC". Matched against the clause immediately preceding a keyword, because a permit that
+#: says "no mechanical work" is evidence *against* mechanical scope, not for it.
+_NEGATION = re.compile(
+    r"\b(?:no|not|without|none|non|excluding|excludes|free\s+of|absent|omitting)\b"
+    r"[^.;:()\n]{0,40}$",
+    re.IGNORECASE,
+)
+
+#: A negation whose own clause already ended does not govern the keyword. "The shell is complete.
+#: No change to HVAC" would otherwise read as negating the second clause's own keyword.
+_CLAUSE_BREAK = re.compile(r"[.;:\n]|(?:\s-\s)")
+
+#: A keyword can also be negated *after* it: "all existing mechanical, electrical, and plumbing
+#: (MEP) systems are to remain as-is" states that the mechanical work is unchanged. The negation
+#: follows the term rather than preceding it, so the leading-negation test never sees it. Anchored
+#: to the keyword's own clause, and narrow on purpose: "X ... to remain as-is" is the one English
+#: construction that reliably means "no change to X".
+_TRAILING_NEGATION = re.compile(
+    r"^[^.;:\n]{0,60}\b(?:remain|remains|stay|stays)\b[^.;:\n]{0,15}\bas-?is\b",
+    re.IGNORECASE,
+)
+
+
+def _is_negated(haystack: str, keyword: str) -> bool:
+    """True when the keyword's occurrence is governed by a negation.
+
+    Checked per occurrence rather than per permit: a description can say "no mechanical work in
+    the shell; mechanical permit filed separately", where one mention is negated and another is
+    not. Only the negated occurrence is skipped.
+    """
+    for match in re.finditer(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", haystack):
+        preceding = haystack[: match.start()]
+        # Only the text since the last clause break can govern this occurrence.
+        segment = _CLAUSE_BREAK.split(preceding)[-1] if _CLAUSE_BREAK.search(preceding) else preceding
+        if _NEGATION.search(segment):
+            continue
+        if _TRAILING_NEGATION.match(haystack[match.end():]):
+            continue
+        return False
+    return True
 
 
 def _contains_keyword(haystack: str, keyword: str) -> bool:
@@ -31,11 +83,16 @@ def _contains_keyword(haystack: str, keyword: str) -> bool:
     such as "mechanically fasten ... coverboard" register as mechanical scope, which would
     attach an HVAC claim to a roof replacement. Requiring a whole word keeps
     "mechanical, electrical and plumbing work" while rejecting the adverb.
+
+    A negated occurrence is rejected too: "there will be no mechanical, no electrical work"
+    states the absence of the trade, and reading the keyword out of it inverts the record.
     """
     keyword = keyword.lower().strip()
     if not keyword:
         return False
-    return re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", haystack) is not None
+    if re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", haystack) is None:
+        return False
+    return not _is_negated(haystack, keyword)
 
 
 #: Permit subtypes that denote construction work when no work description is supplied.
@@ -223,12 +280,38 @@ def detect_mechanical_signal(permit: Permit, trade: TradeConfig) -> MechanicalSi
         return None
     for keyword in trade.mechanical_scope_keywords:
         if _contains_keyword(text, keyword):
+            # Collect the rest of the keywords too. The first is the claim; the full set is the
+            # depth behind it, and a reviewer judging scope needs all of it.
+            matched = tuple(
+                k for k in trade.mechanical_scope_keywords if _contains_keyword(text, k)
+            )
             return MechanicalSignal(
                 tier=2,
                 matched_keyword=keyword,
                 excerpt=_excerpt_for(permit, keyword),
                 permit=permit,
+                all_keywords=matched,
+                source_field=_field_for(permit, keyword),
             )
+    return None
+
+
+def _field_for(permit: Permit, keyword: str) -> str | None:
+    """Which stored field the keyword was found in.
+
+    Recorded because the fields are not equally strong: a mechanical keyword in the work
+    description describes the work being permitted, while the same word in a land-use or
+    specific-use code describes what the building is. Both are real, but they support
+    different claims, so the distinction is kept rather than flattened.
+    """
+    for label, value in (
+        ("work_description", permit.work_description),
+        ("permit_type", permit.permit_type),
+        ("land_use", permit.land_use),
+        ("specific_use", permit.specific_use),
+    ):
+        if value and _contains_keyword(value.lower(), keyword):
+            return label
     return None
 
 

@@ -6,6 +6,12 @@ what a visitor would actually receive.
 
 from __future__ import annotations
 
+import json
+
+
+def _json(client, path: str) -> dict:
+    return json.loads(client.get(path).get_data(as_text=True))
+
 
 # --- public pages render -------------------------------------------------------
 
@@ -81,9 +87,22 @@ def test_service_work_never_becomes_an_opportunity(client):
     assert "30 SERVICE ST" not in body
 
 
-def test_plumbing_only_record_is_not_listed_as_hvac(client):
-    """An HVAC directory must not list a record with no mechanical evidence."""
+def test_plumbing_only_record_is_listed_but_never_as_hvac(client):
+    """A record with no mechanical evidence may be listed, but never labelled an HVAC one.
+
+    Discovery runs on the commercial base, so Collin County cities — which publish no trade
+    text at all — are reachable. The trade claim stays scoped: the listing carries the
+    "Trade not verified" signal rather than an HVAC label.
+    """
     body = client.get("/opportunities").get_data(as_text=True)
+    assert "40 PLUMB ST" in body
+    assert "Trade not verified" in body
+    assert "Mechanical evidence found" not in body.split("40 PLUMB ST")[1][:600]
+
+
+def test_trade_evidence_only_filter_hides_records_without_evidence(client):
+    """The evidence-scoped view still excludes a record with no mechanical evidence."""
+    body = client.get("/opportunities?mechanical_only=1").get_data(as_text=True)
     assert "40 PLUMB ST" not in body
 
 
@@ -91,6 +110,34 @@ def test_directory_can_include_unverified_records_on_request(client):
     """The wider set is reachable, but only by explicit opt-in."""
     body = client.get("/opportunities?include_unverified=1").get_data(as_text=True)
     assert "40 PLUMB ST" in body
+
+
+def test_unknown_procurement_status_is_still_discoverable(client):
+    """'We do not know the status' must not be treated as 'closed'.
+
+    Collin CAD publishes no status at all, so conflating the two hid every Collin County city.
+    """
+    payload = _json(client, "/api/opportunities?page_size=50")
+    listed = {item["address"] for item in payload["results"]}
+    assert "40 PLUMB ST" in listed
+
+
+def test_tier2_scope_is_listed_with_its_markers(client):
+    """A text-only mechanical claim is discoverable and carries the deeper markers."""
+    payload = _json(client, "/api/opportunities?page_size=50")
+    row = next(i for i in payload["results"] if i["address"] == "60 SCOPE ST")
+    assert row["mechanical_evidence_tier"] == 2
+    assert row["trade_signal"] == "Mechanical evidence found"
+    assert "Keywords:" in row["mechanical_hvac_evidence"]
+    assert "Field: work_description" in row["mechanical_hvac_evidence"]
+
+
+def test_negated_scope_is_listed_without_a_mechanical_claim(client):
+    """The negation trap is discoverable as a commercial project, never as a mechanical one."""
+    payload = _json(client, "/api/opportunities?page_size=50")
+    row = next(i for i in payload["results"] if i["address"] == "70 NOHVAC ST")
+    assert row["mechanical_evidence_tier"] is None
+    assert row["trade_signal"] == "Trade not verified"
 
 
 # --- filtering -----------------------------------------------------------------

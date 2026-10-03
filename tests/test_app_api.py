@@ -56,9 +56,24 @@ def test_list_excludes_completed_and_service_records(client):
     assert "30 SERVICE ST" not in addresses
 
 
-def test_list_excludes_records_without_trade_evidence(client):
-    """The trade scoping applies to the API exactly as it does to the pages."""
+def test_list_marks_records_without_trade_evidence(client):
+    """Trade scoping applies to the API exactly as it does to the pages.
+
+    Discovery runs on the commercial base, so a record with no trade evidence is listed. What
+    must hold is that it is never presented as a trade opportunity: its tier is null and its
+    trade signal says so.
+    """
     payload = _get_json(client, "/api/opportunities?page_size=50")
+    unverified = [item for item in payload["results"] if item["mechanical_evidence_tier"] is None]
+    assert unverified, "the commercial base must be discoverable"
+    for item in unverified:
+        assert item["trade_signal"] == "Trade not verified", item["address"]
+
+
+def test_trade_evidence_only_filter_excludes_unverified_records(client):
+    """The evidence-scoped view is still reachable, and still scoped."""
+    payload = _get_json(client, "/api/opportunities?page_size=50&mechanical_only=1")
+    assert payload["results"], "the evidence-scoped view must not be empty"
     for item in payload["results"]:
         assert item["mechanical_evidence_tier"] in (1, 2), item["address"]
 

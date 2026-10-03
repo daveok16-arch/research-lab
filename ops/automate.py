@@ -65,6 +65,16 @@ DEFAULT_REFRESH_SECONDS = 6 * 60 * 60
 #: cap for an initial backfill.
 DEFAULT_MAX_PAGES = 3
 
+#: How far the progressive backfill may widen. A bounded fetch alone never reaches older
+#: history: `--max-pages 3` re-reads the same newest pages forever, which is why a live instance
+#: sat at ~3k rows per source while a manual run collected 196k. Since the host may not allow one
+#: long request, the depth doubles after each successful pass until it reaches this ceiling.
+#: The default matches the connectors' own page limit, so the ceiling is effectively "everything".
+BACKFILL_CEILING_PAGES = int(os.environ.get("BACKFILL_MAX_PAGES") or 200)
+
+#: Multiplier applied to the page cap after each successful pass.
+BACKFILL_GROWTH = 2
+
 _LOG_LOCK = threading.Lock()
 
 
@@ -128,12 +138,37 @@ def run_step(label: str, args: list[str], timeout: int) -> bool:
     return True
 
 
-def refresh_once(max_pages: int | None = None) -> dict:
-    """Run the full online-search pipeline once and record the outcome."""
+def _next_depth(state: dict, base: int) -> int:
+    """The page cap for the pass about to run.
+
+    Depth grows only after a clean pass, so a failing source is retried at the same width
+    rather than widening a broken request. Once the ceiling is reached it stays there: at that
+    point each pass reads the full history, which is what keeps a fresh deployment from
+    re-deriving old permits one bounded slice at a time.
+    """
+    depth = int(state.get("backfill_pages") or base)
+    return max(base, min(depth, BACKFILL_CEILING_PAGES))
+
+
+def refresh_once(max_pages: int | None = None, *, grow: bool = False) -> dict:
+    """Run the full online-search pipeline once and record the outcome.
+
+    With ``grow`` set the page cap is taken from the recorded backfill depth and doubled after a
+    clean pass, so a service left running on a small interval walks back through the source
+    history on its own. Without it the caller's cap is used exactly, which is what ``--once``
+    and an explicit ``--max-pages`` expect.
+    """
     py = sys.executable
+    state = load_state()
+
+    if grow and max_pages is not None:
+        effective_pages = _next_depth(state, max_pages)
+    else:
+        effective_pages = max_pages
+
     ingest = [py, "-m", "oppintel.cli", "ingest"]
-    if max_pages is not None:
-        ingest += ["--max-pages", str(max_pages)]
+    if effective_pages is not None:
+        ingest += ["--max-pages", str(effective_pages)]
 
     steps = [
         ("ingest", ingest, 1800),
@@ -148,10 +183,16 @@ def refresh_once(max_pages: int | None = None) -> dict:
         if not results[label]:
             break
 
-    state = load_state()
+    ok = all(results.values()) and len(results) == len(steps)
+    if grow and max_pages is not None:
+        if ok and effective_pages is not None:
+            state["backfill_pages"] = min(effective_pages * BACKFILL_GROWTH, BACKFILL_CEILING_PAGES)
+        else:
+            state["backfill_pages"] = effective_pages
     state["last_run"] = _now()
-    state["last_run_ok"] = all(results.values()) and len(results) == len(steps)
+    state["last_run_ok"] = ok
     state["last_steps"] = results
+    state["last_pages"] = effective_pages
     state["runs"] = int(state.get("runs", 0)) + 1
     save_state(state)
     return state
@@ -179,17 +220,19 @@ def start_server() -> subprocess.Popen:
     )
 
 
-def _refresh_loop(refresh_seconds: int, max_pages: int | None, stop: threading.Event) -> None:
+def _refresh_loop(refresh_seconds: int, max_pages: int | None, stop: threading.Event,
+                  grow: bool = False) -> None:
     """Run the refresh on its own thread so the supervisor is never blocked."""
     while not stop.is_set():
         try:
-            refresh_once(max_pages=max_pages)
+            refresh_once(max_pages=max_pages, grow=grow)
         except Exception as exc:  # keep the loop alive across an unexpected failure
             log(f"refresh loop error: {exc!r}")
         stop.wait(refresh_seconds)
 
 
-def run_forever(refresh_seconds: int, serve: bool, max_pages: int | None) -> None:
+def run_forever(refresh_seconds: int, serve: bool, max_pages: int | None,
+                grow: bool = False) -> None:
     stop = threading.Event()
 
     def _handle(_signum, _frame):
@@ -204,7 +247,7 @@ def run_forever(refresh_seconds: int, serve: bool, max_pages: int | None) -> Non
         server = start_server()
 
     refresh_thread = threading.Thread(
-        target=_refresh_loop, args=(refresh_seconds, max_pages, stop), daemon=True
+        target=_refresh_loop, args=(refresh_seconds, max_pages, stop, grow), daemon=True
     )
     refresh_thread.start()
 
@@ -238,6 +281,8 @@ def main() -> int:
                         help=f"pages fetched per source (default {DEFAULT_MAX_PAGES})")
     parser.add_argument("--full", action="store_true",
                         help="fetch every page of every source instead of the newest few")
+    parser.add_argument("--grow-backfill", action="store_true",
+                        help="double the page cap after each clean pass, up to BACKFILL_MAX_PAGES")
     args = parser.parse_args()
 
     max_pages = None if args.full else args.max_pages
@@ -253,7 +298,7 @@ def main() -> int:
         state = refresh_once(max_pages=max_pages)
         return 0 if state.get("last_run_ok") else 1
 
-    run_forever(args.refresh_seconds, args.serve, max_pages)
+    run_forever(args.refresh_seconds, args.serve, max_pages, grow=args.grow_backfill)
     return 0
 
 

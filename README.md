@@ -196,12 +196,25 @@ not a contradiction — that is normal scope.
 no source publishes bid status. Every customer-facing page states verbatim that permit evidence
 does not confirm an available HVAC package.
 
-**Completed work is not an opportunity.** A closed project is excluded from discovery. It stays
-reachable by direct link, where its status is shown plainly.
+**Completed work is not an opportunity.** A project known to be finished or dead is excluded
+from discovery. It stays reachable by direct link, where its status is shown plainly. An
+*unknown* status is not treated as closed: a source that publishes no procurement status still
+yields discoverable projects, because "we do not know" is not "there is nothing to procure".
 
-**Trade evidence is required for discovery.** An HVAC directory lists only projects with
-mechanical evidence. The requirement comes from `config/trades.yaml`, so a future trade declares
-its own evidence.
+**Discovery runs on the commercial base; the trade claim stays scoped.** The directory lists
+commercial projects (HIGH or MEDIUM) that are not known to be closed. A listing may therefore
+carry no mechanical evidence, so every listing carries a trade-signal badge stating exactly
+what the record supports — "Mechanical permit on file", "Mechanical evidence found", or
+"Trade not verified". A project with no evidence is presented as a commercial opportunity, not
+as an HVAC one. `mechanical_only=1` narrows the directory to the evidence-scoped view. The
+gate is `TradeConfig.discovery.discover_commercial_base` in `config/trades.yaml`, so a future
+trade changes this without touching application code.
+
+**Evidence matching honours negation, in both directions.** A permit whose text rules mechanical
+work out — "no mechanical, electrical, or plumbing work" — yields no mechanical evidence. A
+keyword that a preceding "no", "without" or "no change to" negates is not a claim, and neither is
+one its own clause says is to "remain as-is": a finish refresh that keeps "all existing
+mechanical, electrical, and plumbing (MEP) systems … as-is" is not a mechanical opportunity.
 
 ---
 
@@ -240,16 +253,21 @@ follows an old link or a search result sees the truth rather than a 404.
 Every step is a filter with a stated purpose. No step changes a classification.
 
 ```
-22,351 permit records              collected from three public sources
+196,000 permit records             collected from three public sources
    ↓  assembled by address
-3,996 projects                     permits grouped into the underlying project
+9,137 projects                     permits grouped into the underlying project
    ↓  classification gates
-   708 HIGH or MEDIUM               scored on documented evidence
-   ↓  procurement filter            excludes Closed and Not verified
-   509 with active procurement      work recorded as proceeding
-   ↓  trade evidence filter         config/trades.yaml
-   276 discoverable                 HVAC/mechanical evidence present
+1,146 HIGH or MEDIUM               scored on documented evidence
+   ↓  procurement filter            excludes only work known to be Closed
+   835 commercial base              not known to be finished or dead
+   ↓  trade evidence filter         opt-in via mechanical_only=1
+   122 with mechanical evidence     HVAC/mechanical evidence present, in 19 cities
 ```
+
+The last step is opt-in rather than a gate. Discovery runs on the 835-project commercial base
+so that cities whose source publishes no trade text — every Collin County city — are reachable
+at all; the 122 with mechanical evidence are the subset a visitor can narrow to. Each listing
+states which of the two it is.
 
 Where the 13 vs 10 difference sits:
 

@@ -113,6 +113,72 @@ def test_mechanical_scope_text_is_tier_2(trade):
     assert signal is not None and signal.tier == 2
 
 
+def test_scope_text_records_every_keyword_and_its_field(trade):
+    """The tier-2 claim carries its depth: all keywords and the field they came from."""
+    permit = make_permit(
+        permit_type="Commercial Building Permit",
+        work_description="Interior tenant improvement with mechanical HVAC scope",
+    )
+    signal = detect_mechanical_signal(permit, trade)
+    assert signal is not None and signal.tier == 2
+    assert set(signal.all_keywords) >= {"mechanical", "hvac"}
+    assert signal.source_field == "work_description"
+
+
+def test_negated_mechanical_scope_is_not_evidence(trade):
+    """A record that rules mechanical work out must not be claimed as mechanical scope.
+
+    Regression: live Fort Worth data matched "no mechanical, electrical, or plumbing work" as
+    tier-2 evidence, which asserts the opposite of what the permit says.
+    """
+    permit = make_permit(
+        permit_type="Commercial Building Permit",
+        work_description="Tenant improvement with no mechanical, electrical, or plumbing work",
+    )
+    assert detect_mechanical_signal(permit, trade) is None
+
+
+def test_negation_does_not_suppress_a_later_genuine_mention(trade):
+    """Negation is scoped to its own clause; a separate positive mention still counts."""
+    permit = make_permit(
+        permit_type="Commercial Building Permit",
+        work_description=(
+            "No change to the building envelope. Mechanical HVAC work to serve the new suite."
+        ),
+    )
+    signal = detect_mechanical_signal(permit, trade)
+    assert signal is not None and signal.tier == 2
+
+
+def test_trailing_as_is_negation_is_not_evidence(trade):
+    """A term negated *after* it still states no change.
+
+    Regression: a 13-story hotel finish refresh said "all existing mechanical, electrical, and
+    plumbing (MEP) systems are to remain as-is. No major MEP modifications" and was listed as a
+    mechanical opportunity. The negation follows the keyword, so the leading test never saw it.
+    """
+    permit = make_permit(
+        permit_type="Commercial Building Permit",
+        work_description=(
+            "ALL EXISTING MECHANICAL, ELECTRICAL, AND PLUMBING (MEP) SYSTEMS ARE TO REMAIN AS-IS. "
+            "NO MAJOR MEP MODIFICATIONS, CENTRAL SYSTEM UPGRADES, OR REPLACEMENTS ARE INCLUDED."
+        ),
+    )
+    assert detect_mechanical_signal(permit, trade) is None
+
+
+def test_as_is_negation_does_not_suppress_a_separate_scope_clause(trade):
+    """The as-is rule is anchored to the keyword's own clause, not the whole description."""
+    permit = make_permit(
+        permit_type="Commercial Building Permit",
+        work_description=(
+            "Existing lighting to remain as-is. New HVAC rooftop units to serve the added area."
+        ),
+    )
+    signal = detect_mechanical_signal(permit, trade)
+    assert signal is not None and signal.tier == 2
+
+
 def test_roofing_adverb_does_not_register_as_mechanical_scope(trade):
     """Regression: live Fort Worth data matched 'mechanically' in a roof replacement."""
     permit = make_permit(

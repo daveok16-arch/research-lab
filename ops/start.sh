@@ -70,11 +70,20 @@ python -m flask --app oppintel.app.wsgi init-app >/dev/null
 
 REFRESH_SECONDS="${REFRESH_SECONDS:-21600}"
 MAX_PAGES="${MAX_PAGES:-3}"
+# Progressive backfill: the page cap doubles after each clean pass, so a long-running service
+# walks back through the source history instead of re-reading the newest pages forever. Set
+# GROW_BACKFILL=0 to pin the depth at MAX_PAGES.
+GROW_BACKFILL="${GROW_BACKFILL:-1}"
+
+GROW_ARGS=()
+if [ "$GROW_BACKFILL" = "1" ]; then
+    GROW_ARGS=(--grow-backfill)
+fi
 
 if [ "$FOREGROUND" = "1" ]; then
     echo "starting automation in the foreground on ${HOST}:${PORT}, refresh ${REFRESH_SECONDS}s"
     exec python ops/automate.py --serve --refresh-seconds "$REFRESH_SECONDS" \
-        --max-pages "$MAX_PAGES"
+        --max-pages "$MAX_PAGES" "${GROW_ARGS[@]}"
 fi
 
 PID_FILE="$OPPINTEL_DATA_DIR/automation.pid"
@@ -85,6 +94,6 @@ fi
 
 # stdout/stderr go to a separate file: the daemon owns data/automation.log itself.
 nohup python ops/automate.py --serve --refresh-seconds "$REFRESH_SECONDS" \
-    --max-pages "$MAX_PAGES" > "$OPPINTEL_DATA_DIR/automation.out" 2>&1 &
+    --max-pages "$MAX_PAGES" "${GROW_ARGS[@]}" > "$OPPINTEL_DATA_DIR/automation.out" 2>&1 &
 echo $! > "$PID_FILE"
 echo "automation started (pid $(cat "$PID_FILE")) on ${HOST}:${PORT}, refresh ${REFRESH_SECONDS}s"

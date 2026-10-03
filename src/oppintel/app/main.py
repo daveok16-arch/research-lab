@@ -1237,6 +1237,7 @@ def _filters_from_request(args: Any) -> OpportunityFilters:
         date_from=args.get("date_from"),
         date_to=args.get("date_to"),
         include_unverified=args.get("include_unverified") in ("1", "true", "on"),
+        mechanical_only=args.get("mechanical_only") in ("1", "true", "on"),
         sort=args.get("sort") or DEFAULT_SORT,
         page=_safe_int(args.get("page"), 1),
         page_size=_safe_int(args.get("page_size"), 20),

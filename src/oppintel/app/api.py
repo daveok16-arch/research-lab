@@ -55,6 +55,7 @@ LIST_FIELDS = (
     "source_url",
     "source_name",
     "evidence_label",
+    "trade_signal",
     "shares_building",
 )
 

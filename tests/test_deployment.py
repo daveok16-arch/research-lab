@@ -156,6 +156,7 @@ def _run_start(tmp_path, env_overrides, monkeypatch):
         "echo \"DATA_DIR=$OPPINTEL_DATA_DIR\"\n"
         "echo \"DB=$OPPINTEL_DB\"\n"
         "echo \"BASE_URL=$BASE_URL\"\n"
+        "echo \"ARGS=$*\"\n"
         "exit 0\n"
     )
     (stub / "python").chmod(0o755)
@@ -165,7 +166,8 @@ def _run_start(tmp_path, env_overrides, monkeypatch):
         "HOME": str(tmp_path),
     }
     env.update(env_overrides)
-    for key in ("PYTHONPATH", "SECRET_KEY", "OPPINTEL_DATA_DIR", "OPPINTEL_DB", "RENDER", "PORT"):
+    for key in ("PYTHONPATH", "SECRET_KEY", "OPPINTEL_DATA_DIR", "OPPINTEL_DB", "RENDER", "PORT",
+                "GROW_BACKFILL", "MAX_PAGES", "REFRESH_SECONDS"):
         monkeypatch.delenv(key, raising=False)
     env.setdefault("RENDER_EXTERNAL_URL", "")
     return subprocess.run(
@@ -270,3 +272,54 @@ def test_start_script_falls_back_to_loopback_only_off_platform(tmp_path, monkeyp
 
     assert result.returncode == 0, result.stderr
     assert "BASE_URL=http://127.0.0.1:12000" in result.stdout
+
+
+# --- the refresh deepens instead of re-reading the newest pages forever ---------
+
+def _automate():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "automate", pathlib.Path(__file__).resolve().parents[1] / "ops" / "automate.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_backfill_depth_doubles_until_the_ceiling():
+    """A fixed `--max-pages 3` never reached older history on the live instance."""
+    automate = _automate()
+    state: dict = {}
+    depths = []
+    for _ in range(10):
+        depth = automate._next_depth(state, 3)
+        depths.append(depth)
+        state["backfill_pages"] = min(depth * automate.BACKFILL_GROWTH,
+                                      automate.BACKFILL_CEILING_PAGES)
+
+    assert depths[:4] == [3, 6, 12, 24]
+    assert depths[-1] == automate.BACKFILL_CEILING_PAGES
+
+
+def test_backfill_depth_never_shrinks_below_the_configured_floor():
+    automate = _automate()
+    assert automate._next_depth({"backfill_pages": 1}, 3) == 3
+    assert automate._next_depth({}, 50) == 50
+
+
+def test_start_script_enables_progressive_backfill_by_default(tmp_path, monkeypatch):
+    result = _run_start(tmp_path, {"FOREGROUND": "1", "PORT": "12000"}, monkeypatch)
+
+    assert result.returncode == 0, result.stderr
+    assert "--grow-backfill" in result.stdout
+
+
+def test_start_script_can_pin_the_depth(tmp_path, monkeypatch):
+    """An operator can freeze the fetch width, e.g. to keep a small instance responsive."""
+    result = _run_start(
+        tmp_path, {"FOREGROUND": "1", "PORT": "12000", "GROW_BACKFILL": "0"}, monkeypatch
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--grow-backfill" not in result.stdout

@@ -5,8 +5,8 @@
   <div class="wrap">
     <h1 style="font-size:1.6rem">{{ mkt.name }} Commercial Construction Opportunities</h1>
     <p class="lede" style="font-size:1rem">
-      Commercial construction projects across {{ mkt.name }} with documented mechanical
-      evidence, compiled from public City permit records.
+      Commercial construction projects across {{ mkt.name }}, compiled from public
+      permitting records. Each listing states the trade signal the record supports.
     </p>
     <div class="hero-cta">
       <a class="btn btn-primary" href="{{ url_for('opportunities', city=(mkt.cities[0].name if mkt.cities else None)) }}">

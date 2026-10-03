@@ -5,8 +5,8 @@
   <div class="wrap">
     <h1 style="font-size:1.6rem">{{ market.short_name }} Commercial {{ trade.short_label or trade.label }} Opportunities</h1>
     <p class="lede" style="font-size:1rem">
-      Active commercial construction projects across {{ market.name }} with documented mechanical
-      evidence. Every fact links to its public source.
+      Commercial construction projects across {{ market.name }}. Each listing states the trade
+      signal the record supports, and every fact links to its public source.
     </p>
   </div>
 </section>
@@ -67,6 +67,15 @@
       <input type="date" id="date_to" name="date_to" value="{{ filters.date_to or '' }}">
     </div>
     <div class="field">
+      <label for="trade_signal">Trade signal</label>
+      <select id="trade_signal" name="mechanical_only">
+        <option value="">All records</option>
+        <option value="1" {% if filters.mechanical_only %}selected{% endif %}>
+          {{ trade.short_label or trade.label }} evidence only
+        </option>
+      </select>
+    </div>
+    <div class="field">
       <label for="sort">Sort by</label>
       <select id="sort" name="sort">
         {% for key, meta in sort_options.items() %}
@@ -82,7 +91,7 @@
     <label class="checkline">
       <input type="checkbox" name="include_unverified" value="1"
              {% if filters.include_unverified %}checked{% endif %}>
-      Include records without mechanical evidence
+      Include closed and unverified records
     </label>
   </div>
 </form>
@@ -109,7 +118,7 @@
           message = "Nothing in the current data matched those filters.",
           suggestions = ["Try expanding your date range or selecting another project type.",
                          "Clear the city filter to search the whole market.",
-                         "Records appear here only when they carry documented mechanical evidence."],
+                         "Select a trade signal to narrow to records with documented evidence."],
           reset_url = url_for('opportunities') %}
     {% include "partials/empty_state.html" %}
   {% endwith %}
@@ -119,8 +128,14 @@
   <div class="notice notice-plain">
     <h4>About this directory</h4>
     <p>
-      Listings include projects classified HIGH or MEDIUM with a mechanical or HVAC evidence
-      tier. Work recorded as finished or inactive is excluded from discovery, and can still be
+      Listings include commercial projects classified HIGH or MEDIUM across the market. Each
+      record carries a trade signal stating exactly what the source supports: a
+      {{ trade.short_label or trade.label }} permit on file, evidence found in the permit text,
+      or trade not verified. A project with no trade evidence is listed as a commercial
+      opportunity, not as a {{ trade.short_label or trade.label }} one.
+    </p>
+    <p>
+      Work recorded as finished or inactive is excluded from discovery, and can still be
       reached by its direct link, where its status is shown.
     </p>
     <p>

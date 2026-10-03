@@ -36,9 +36,14 @@ from .search_index import quote_for_fts
 #: Classifications the public site may show, in display order.
 PUBLIC_CLASSIFICATIONS = ("HIGH", "MEDIUM")
 
-#: Procurement states that disqualify a project from public *discovery*. A closed project may
-#: still be reachable by direct URL, where its status is stated plainly.
-DISCOVERABLE_PROCUREMENT = (CONFIRMED_OPEN, EVIDENCE_FOUND)
+#: Procurement states that permit public *discovery*. A project is discoverable unless it is
+#: known to be finished or dead: "we do not know the procurement status" is not the same as
+#: "there is nothing to procure", and treating the two as one hid every record whose source
+#: publishes no status. Collin CAD is exactly that case — it reports an issue date and no
+#: status at all — so its records were unreachable even though the work is recent.
+#:
+#: A CLOSED project is still reachable by direct URL, where its status is stated plainly.
+DISCOVERABLE_PROCUREMENT = (CONFIRMED_OPEN, EVIDENCE_FOUND, NOT_VERIFIED)
 
 #: Sort options exposed to the public. Deliberately factual orderings only: there is no
 #: "best opportunity" sort, because that would be an invented judgement.
@@ -245,7 +250,7 @@ class OpportunityService:
             SELECT city, COUNT(*) AS n
               FROM project
              WHERE classification IN (?, ?)
-               AND procurement_status IN (?, ?)
+               AND procurement_status IN (?, ?, ?)
                AND city IS NOT NULL
              GROUP BY city
              ORDER BY n DESC, city
@@ -260,7 +265,7 @@ class OpportunityService:
             SELECT project_type, COUNT(*) AS n
               FROM project
              WHERE classification IN (?, ?)
-               AND procurement_status IN (?, ?)
+               AND procurement_status IN (?, ?, ?)
                AND project_type IS NOT NULL
              GROUP BY project_type
              ORDER BY n DESC, project_type
@@ -291,10 +296,16 @@ class OpportunityService:
         The requirement comes from `trades.yaml`, so a future plumbing or electrical trade
         declares its own evidence field rather than needing new application code.
 
-        Relaxed when the visitor explicitly asks for a wider set, so a filtered view can still
-        reach a record the default discovery view hides.
+        Relaxed when the visitor explicitly asks for a wider set, or when the trade is
+        configured to discover on the commercial base. In the second case every listing carries
+        a trade-signal badge, so a project with no mechanical evidence is shown as
+        trade-unverified rather than presented as an HVAC opportunity. That distinction is the
+        whole point: the directory may widen, but it may not claim a trade the record does not
+        support.
         """
-        if filters.include_unverified or filters.procurement_status:
+        if filters.include_unverified or filters.procurement_status or filters.mechanical_only:
+            return None, []
+        if (self.trade.discovery or {}).get("discover_commercial_base"):
             return None, []
         field = (self.trade.discovery or {}).get("evidence_field")
         values = (self.trade.discovery or {}).get("evidence_values") or []
@@ -315,11 +326,12 @@ class OpportunityService:
         clauses: list[str] = ["p.classification IN (?, ?)"]
         params: list[Any] = list(PUBLIC_CLASSIFICATIONS)
 
-        # Discovery excludes closed work; an explicit opt-in includes it with the status shown.
+        # Discovery hides only work known to be finished or dead. The opt-in shows everything,
+        # including closed records, with the status stated on each listing.
         if filters.include_unverified:
             clauses.append("p.procurement_status IS NOT NULL")
         else:
-            clauses.append("p.procurement_status IN (?, ?)")
+            clauses.append("p.procurement_status IN (?, ?, ?)")
             params.extend(DISCOVERABLE_PROCUREMENT)
 
         trade_clause, trade_params = self._trade_evidence_clause(filters)
@@ -440,6 +452,7 @@ class OpportunityService:
         """
         project["city_slug"] = self.market.city_slug(project.get("city"))
         project["evidence_label"] = self.evidence_label(project)
+        project["trade_signal"] = self.trade_signal_label(project)
         project["has_mechanical_evidence"] = project.get("mechanical_evidence_tier") in (1, 2)
         project["last_verified_display"] = self.format_month(project.get("last_verified"))
         project["permit_date_display"] = self.format_date(project.get("permit_date"))
@@ -536,6 +549,23 @@ class OpportunityService:
             return "Mechanical scope on record"
         return "No mechanical evidence"
 
+    def trade_signal_label(self, project: dict[str, Any]) -> str:
+        """The trade-signal badge shown on every listing.
+
+        Needed because discovery may run on the commercial base, where a listed project can
+        have no trade evidence at all. The badge is what keeps that honest: the record is shown,
+        but it is never labelled as a trade opportunity the data does not support. The wording
+        comes from the trade profile's own evidence field, so a second trade renames it without
+        an application change.
+        """
+        tier = project.get("mechanical_evidence_tier")
+        strong = self.trade.strong_evidence_value
+        if tier is not None and strong is not None and tier == strong:
+            return "Mechanical permit on file"
+        if tier is not None and tier in self.trade.evidence_values:
+            return "Mechanical evidence found"
+        return "Trade not verified"
+
     @staticmethod
     def format_month(value: Any) -> str:
         if not value:
@@ -599,7 +629,7 @@ class OpportunityService:
              WHERE p.city = ?
                AND p.id <> ?
                AND p.classification IN (?, ?)
-               AND p.procurement_status IN (?, ?)
+               AND p.procurement_status IN (?, ?, ?)
              ORDER BY p.permit_date DESC NULLS LAST, p.id
              LIMIT ?
             """,
@@ -623,7 +653,7 @@ class OpportunityService:
             """
             SELECT id, address, city FROM project
              WHERE classification IN (?, ?)
-               AND procurement_status IN (?, ?)
+               AND procurement_status IN (?, ?, ?)
                AND city IS NOT NULL
             """,
             PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT,
@@ -752,7 +782,7 @@ class OpportunityService:
         The evidence predicates come from the trade profile rather than a literal column, so a
         second trade declares its own evidence instead of needing new application code.
         """
-        public_suffix = " AND classification IN (?, ?) AND procurement_status IN (?, ?)"
+        public_suffix = " AND classification IN (?, ?) AND procurement_status IN (?, ?, ?)"
         public_params = list(params) + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT)
 
         evidence_clause, evidence_params = self.trade.evidence_clause("p")
@@ -812,7 +842,7 @@ class OpportunityService:
                    SUM(CASE WHEN {self._evidence_predicate("")} THEN 1 ELSE 0 END) AS mech,
                    SUM(CASE WHEN classification='HIGH' THEN 1 ELSE 0 END) AS high
               FROM project
-             WHERE classification IN (?, ?) AND procurement_status IN (?, ?)
+             WHERE classification IN (?, ?) AND procurement_status IN (?, ?, ?)
                AND city IS NOT NULL
              GROUP BY city
              ORDER BY n DESC, city
@@ -832,7 +862,7 @@ class OpportunityService:
             SELECT project_type, COUNT(*) AS n,
                    SUM(CASE WHEN classification='HIGH' THEN 1 ELSE 0 END) AS high
               FROM project
-             WHERE classification IN (?, ?) AND procurement_status IN (?, ?)
+             WHERE classification IN (?, ?) AND procurement_status IN (?, ?, ?)
                AND project_type IS NOT NULL
              GROUP BY project_type
              ORDER BY n DESC, project_type
@@ -850,7 +880,7 @@ class OpportunityService:
         """
         return self.statistics_for(
             where="p.project_type = ? AND p.classification IN (?, ?) "
-                  "AND p.procurement_status IN (?, ?)",
+                  "AND p.procurement_status IN (?, ?, ?)",
             params=[project_type] + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
         )
 
@@ -864,7 +894,7 @@ class OpportunityService:
         for row in self.db.conn.execute(
             """
             SELECT DISTINCT project_type FROM project
-             WHERE classification IN (?, ?) AND procurement_status IN (?, ?)
+             WHERE classification IN (?, ?) AND procurement_status IN (?, ?, ?)
                AND project_type IS NOT NULL
             """,
             PUBLIC_CLASSIFICATIONS + DISCOVERABLE_PROCUREMENT,
@@ -878,7 +908,7 @@ class OpportunityService:
             """
             SELECT city, COUNT(*) AS n FROM project
              WHERE project_type = ? AND classification IN (?, ?)
-               AND procurement_status IN (?, ?) AND city IS NOT NULL
+               AND procurement_status IN (?, ?, ?) AND city IS NOT NULL
              GROUP BY city ORDER BY n DESC, city LIMIT ?
             """,
             [project_type] + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT)
@@ -958,7 +988,7 @@ class OpportunityService:
               LEFT JOIN project_slug s ON s.project_id = p.id
              WHERE p.id IN ({placeholders})
                AND p.classification IN (?, ?)
-               AND p.procurement_status IN (?, ?)
+               AND p.procurement_status IN (?, ?, ?)
             """,
             ordered + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
         ).fetchall()
@@ -978,7 +1008,7 @@ class OpportunityService:
               JOIN project_slug s ON s.project_id = p.id
              WHERE s.slug IN ({placeholders})
                AND p.classification IN (?, ?)
-               AND p.procurement_status IN (?, ?)
+               AND p.procurement_status IN (?, ?, ?)
             """,
             list(slugs) + list(PUBLIC_CLASSIFICATIONS) + list(DISCOVERABLE_PROCUREMENT),
         ).fetchall()
@@ -1012,7 +1042,7 @@ class OpportunityService:
               LEFT JOIN project_slug s ON s.project_id = p.id
              WHERE c.detected_at >= ?
                AND p.classification IN (?, ?)
-               AND p.procurement_status IN (?, ?)
+               AND p.procurement_status IN (?, ?, ?)
              ORDER BY c.id DESC
              LIMIT ?
             """,
@@ -1030,7 +1060,7 @@ class OpportunityService:
               JOIN project p ON p.id = c.project_id
              WHERE c.detected_at >= ?
                AND p.classification IN (?, ?)
-               AND p.procurement_status IN (?, ?)
+               AND p.procurement_status IN (?, ?, ?)
              GROUP BY c.project_id
              ORDER BY last_id DESC
              LIMIT ?
@@ -1051,7 +1081,7 @@ class OpportunityService:
             """
             SELECT id FROM project p
              WHERE classification IN (?, ?)
-               AND procurement_status IN (?, ?)
+               AND procurement_status IN (?, ?, ?)
              ORDER BY permit_date DESC NULLS LAST, id DESC
              LIMIT ?
             """,
