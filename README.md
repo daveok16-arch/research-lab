@@ -32,6 +32,7 @@ so the product states the procurement status it can actually evidence and no mor
 - [Testing](#testing)
 - [Adding a market or trade](#adding-a-market-or-trade)
 - [Known limitations](#known-limitations)
+- [Rebuilding from scratch](#rebuilding-from-scratch)
 
 ---
 
@@ -782,6 +783,12 @@ classification gates stay in the intelligence layer and are unaffected.
 - Search Console, analytics imports and rank tracking are not integrated. The funnel is measured
   from the application's own events, so it covers on-site behaviour only, not impressions or
   clicks in search results.
+
+---
+
+**Rebuilding this from scratch.** [`docs/REBUILD_PROMPT.md`](docs/REBUILD_PROMPT.md) holds a
+self-contained prompt that recreates the product, plus the checks that confirm a rebuild is
+working against a real database rather than only against fixtures.
 
 ---
 

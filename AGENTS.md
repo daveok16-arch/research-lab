@@ -100,6 +100,11 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
   not in code. The sitemap re-evaluates the same gate so the two signals agree.
 * `app/seo_report.py` — the SEO audit. Computed from the map and the database; reports no ranking.
 * `app/analytics_funnel.py` — landing events. Records a page *kind*, never a URL or identity.
+* `ops/automate.py` — supervisor + refresh loop in one process. The page cap starts at
+  `MAX_PAGES` and doubles per clean pass (`--grow-backfill`, `BACKFILL_MAX_PAGES`), so a
+  long-running service walks back through source history on its own.
+* `docs/REBUILD_PROMPT.md` — the master prompt that recreates the product, and the checks that
+  confirm a rebuild works against real data. Keep it current when the invariants change.
 * `config/keywords.yaml` — keyword-to-page map. One primary keyword per page (asserted by test).
   Curated `landing_pages` cities are indexable; city x trade combinations are gated.
 * Schema lives in two strings in `db.py`: `SCHEMA` (intelligence) and `APP_SCHEMA`
@@ -122,7 +127,12 @@ These are enforced by tests, not by convention. Breaking one fails the suite.
   or unit file; schedule in-process instead.
 * Connectors order newest-first and default to 200 pages/source. An unbounded `ingest`
   (Fort Worth ArcGIS alone) is 200k+ records and takes >13 min, so a recurring refresh is
-  bounded (`MAX_PAGES`, default 3); use `--full` only for an initial backfill.
+  bounded. It **grows instead of repeating**: start at `MAX_PAGES` (default 3) and double
+  after each clean pass up to `BACKFILL_MAX_PAGES` (default 200). A fixed cap re-reads the
+  newest pages forever and never reaches older history — that is why discovery once covered
+  two cities while the data held nineteen. A failed pass is retried at the same width, and
+  the depth is remembered in `automation_state.json` (`backfill_pages`). Use `--full` only
+  for an explicit one-off backfill.
 * `ops/start.sh` redirects the daemon's stdout to `data/automation.out`, **not**
   `data/automation.log`: the daemon owns that log file itself and a second writer interleaves
   and truncates lines.
